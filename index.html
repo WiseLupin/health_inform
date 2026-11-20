@@ -141,22 +141,36 @@
                     
                     <div id="aiHelperContent" class="hidden mt-3 pt-3 border-t border-indigo-100 space-y-3">
                         <div class="text-xs text-indigo-900 space-y-1 bg-white/70 p-2.5 rounded-xl">
-                            <p class="font-semibold">💡 사용 방법:</p>
+                            <p class="font-semibold">💡 사용 방법 (1명 또는 2~3명 동시 가능!):</p>
                             <p>1. 아래 <b>[AI 질문 문구 복사]</b> 버튼을 누릅니다.</p>
-                            <p>2. 챗GPT/제미나이에 처방전·영수증 사진과 함께 붙여넣습니다.</p>
+                            <p>2. 챗GPT/제미나이에 처방전·영수증 사진(여러 장 가능)과 함께 붙여넣습니다.</p>
                             <p>3. AI가 답해준 코드를 복사해 아래 칸에 넣고 <b>[자동 채우기]</b>를 누르세요!</p>
                         </div>
                         
                         <button type="button" onclick="copyAiPrompt()" class="w-full py-2 px-3 bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition">
                             <i data-lucide="copy" class="w-3.5 h-3.5"></i>
-                            <span>1단계: AI 질문 문구 복사하기</span>
+                            <span>1단계: AI 질문 문구 복사하기 (다중 인식 지원)</span>
                         </button>
 
                         <div class="space-y-1.5">
-                            <textarea id="aiJsonInput" rows="3" placeholder='2단계: AI가 생성해준 { "date": ... } 내용을 여기에 붙여넣으세요.' 
+                            <textarea id="aiJsonInput" rows="3" placeholder='2단계: AI가 생성해준 [ { "date": ... } ] 내용을 여기에 붙여넣으세요.' 
                                 class="w-full p-2.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none focus:border-indigo-500 font-mono"></textarea>
                             <button type="button" onclick="parseAiResult()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
-                                3단계: 아래 입력칸에 자동 채우기 ✨
+                                3단계: AI 결과 분석 및 자동 입력 ✨
+                            </button>
+                        </div>
+
+                        <!-- 다중 AI 결과 일괄 등록 영역 (2건 이상 인식 시 표시) -->
+                        <div id="multiAiContainer" class="hidden space-y-2.5 pt-2 border-t border-indigo-200">
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-indigo-900" id="multiAiCountText">총 0건의 기록이 인식되었습니다</span>
+                                <button type="button" onclick="clearMultiAi()" class="text-[11px] text-slate-500 underline">닫기</button>
+                            </div>
+                            <div id="multiAiList" class="space-y-2 max-h-60 overflow-y-auto">
+                                <!-- JS 동적 렌더링 -->
+                            </div>
+                            <button type="button" onclick="saveAllMultiAiRecords()" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+                                인식된 전체 기록 한 번에 저장하기
                             </button>
                         </div>
                     </div>
@@ -165,40 +179,40 @@
                 <!-- 입력 폼 시작 -->
                 <form id="recordForm" onsubmit="saveRecord(event)" class="space-y-4">
                     <input type="hidden" id="recordId">
-
-                    <!-- 1. 기본 정보 -->
-                    <div class="space-y-3">
-                        <h3 class="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
-                            <i data-lucide="hospital" class="w-3.5 h-3.5"></i> 기본 진료 정보
-                        </h3>
-                        
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1">가족 구성원 *</label>
-                                <select id="formMember" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-teal-500">
-                                    <!-- JS 렌더링 -->
-                                </select>
+                        <div class="grid grid-cols-3 gap-2.5">
+                            <div class="col-span-2">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">증상 및 진단명 *</label>
+                                <input type="text" id="formDiagnosis" required placeholder="예: 급성 인후염, 목감기" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1">방문 날짜 *</label>
-                                <input type="date" id="formDate" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">진단코드</label>
+                                <input type="text" id="formDiagnosisCode" placeholder="예: J06.9" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono uppercase focus:outline-none focus:border-teal-500">
                             </div>
                         </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    <!-- 2. 투약 정보 -->
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
+                            <i data-lucide="pill" class="w-3.5 h-3.5"></i> 투약 및 처방 정보
+                        </h3>
 
                         <div class="grid grid-cols-2 gap-3">
                             <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1">병원명 *</label>
-                                <input type="text" id="formHospital" required placeholder="예: 서울내과의원" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">처방 약국</label>
+                                <input type="text" id="formPharmacy" placeholder="예: 온누리약국" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
                             </div>
                             <div>
-                                <label class="block text-xs font-semibold text-slate-600 mb-1">진료과</label>
-                                <input type="text" id="formDepartment" placeholder="예: 내과, 소아과" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">처방 일수</label>
+                                <input type="text" id="formDays" placeholder="예: 3일분" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
                             </div>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-semibold text-slate-600 mb-1">증상 및 진단명 *</label>
-                            <input type="text" id="formDiagnosis" required placeholder="예: 급성 인후염, 목감기" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">처방약 목록 및 복용법 메모</label>
+                            <textarea id="formMedications" rows="4" placeholder="예:&#10;• 타이레놀정 (해열진통) - 1일 3회 식후 30분&#10;• 코푸시럽 (기침가래) - 1일 3회" class="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm leading-relaxed focus:outline-none focus:border-teal-500"></textarea>
                         </div>
                     </div>
 
@@ -365,22 +379,27 @@
         let records = [];
         let selectedMemberFilter = 'ALL';
         let onlyUnclaimedFilter = false;
+        let parsedMultiAiItems = [];
 
-        // AI에게 복사해 줄 표준 프롬프트 문구
-        const AI_PROMPT_TEXT = `첨부한 병원 영수증이나 처방전 이미지를 분석해서 아래 JSON 형식으로만 정확히 답변해줘. 다른 설명은 쓰지 말고 오직 JSON 코드만 출력해.
-알 수 없는 항목은 빈 문자열("") 또는 숫자 0으로 채워줘.
+        // AI에게 복사해 줄 표준 프롬프트 문구 (1명 또는 2~3명 다중 인식 지원)
+        const AI_PROMPT_TEXT = `첨부한 병원 영수증이나 처방전 이미지(1장 또는 여러 장)를 모두 분석해서 아래 JSON 배열 형식으로만 정확히 답변해줘. 다른 설명은 쓰지 말고 오직 JSON 코드만 출력해.
+사람이나 방문 건이 여러 개면 배열 안에 각각 객체로 넣어주고, 알 수 없는 항목은 빈 문자열("") 또는 숫자 0으로 채워줘.
 
-{
-  "date": "YYYY-MM-DD 형식의 방문일",
-  "hospital": "병원 이름",
-  "department": "진료과 (예: 내과, 소아과 등)",
-  "diagnosis": "증상 또는 진단명 (처방약으로 유추 가능하면 간단히)",
-  "pharmacy": "약국 이름",
-  "days": "총 처방일수 (예: 3일분)",
-  "medications": "처방받은 약 이름들과 복용법 요약",
-  "hospitalCost": 0,
-  "pharmacyCost": 0
-}`;
+[
+  {
+    "memberHint": "환자 이름이나 구분 (예: 김철수, 첫째 등 영수증에 적힌 이름)",
+    "date": "YYYY-MM-DD 형식의 방문일",
+    "hospital": "병원 이름",
+    "department": "진료과 (예: 내과, 소아과 등)",
+    "diagnosis": "증상 또는 진단명 (처방약으로 유추 가능하면 간단히)",
+    "diagnosisCode": "질병분류기호/진단코드 (예: J06.9, 없으면 빈칸)",
+    "pharmacy": "약국 이름",
+    "days": "총 처방일수 (예: 3일분)",
+    "medications": "처방받은 약 이름들과 복용법을 줄바꿈(\\n)으로 보기 쉽게 정리",
+    "hospitalCost": 0,
+    "pharmacyCost": 0
+  }
+]`;
 
         // 앱 시작 시 초기화
         window.onload = function() {
@@ -413,10 +432,11 @@
                     date: new Date().toISOString().split('T')[0],
                     hospital: '샘플 연세내과의원',
                     department: '내과',
-                    diagnosis: '가벼운 몸살감기 (샘플 기록입니다)',
+                    diagnosis: '급성 상기도 감염 (샘플 기록)',
+                    diagnosisCode: 'J06.9',
                     pharmacy: '건강약국',
                     days: '3일분',
-                    medications: '해열진통제, 소화제 (식후 30분 복용)',
+                    medications: '• 해열진통제 (1일 3회 식후 30분)\n• 진해거담제 (기침 시 복용)',
                     hospitalCost: 12500,
                     pharmacyCost: 6800,
                     insuranceStatus: 'unclaimed',
@@ -581,7 +601,7 @@
                 .filter(r => {
                     if (onlyUnclaimedFilter && r.insuranceStatus !== 'unclaimed') return false;
                     if (!query) return true;
-                    const target = `${r.hospital} ${r.department} ${r.diagnosis} ${r.pharmacy} ${r.medications} ${r.member}`.toLowerCase();
+                    const target = `${r.hospital} ${r.department} ${r.diagnosis} ${r.diagnosisCode || ''} ${r.pharmacy} ${r.medications} ${r.member}`.toLowerCase();
                     return target.includes(query);
                 })
                 .sort((a, b) => new Date(b.date) - new Date(a.date));
@@ -596,39 +616,39 @@
                     </div>
                 `;
                 return;
-            }
-
-            container.innerHTML = finalFiltered.map(r => {
-                const sumCost = (Number(r.hospitalCost) || 0) + (Number(r.pharmacyCost) || 0);
-                return `
-                <article onclick="openRecordModal('${r.id}')" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 hover:border-teal-200 active:scale-[0.99] transition cursor-pointer space-y-2.5">
-                    <!-- 상단: 가족뱃지, 날짜, 실비상태 -->
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <span class="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-100">
-                                ${r.member}
-                            </span>
-                            <span class="text-xs font-medium text-slate-400">${r.date}</span>
-                        </div>
-                        <div onclick="event.stopPropagation(); quickCycleInsurance('${r.id}')" title="클릭하여 청구 상태 변경">
-                            ${getInsuranceBadge(r.insuranceStatus)}
-                        </div>
-                    </div>
-
-                    <!-- 중단: 병원명, 진료과, 진단명 -->
+                    <!-- 중단: 병원명, 진료과 -->
                     <div>
                         <div class="flex items-baseline gap-1.5">
                             <h3 class="font-bold text-base text-slate-800">${r.hospital}</h3>
                             ${r.department ? `<span class="text-xs text-slate-500 font-medium">${r.department}</span>` : ''}
                         </div>
-                        <p class="text-sm text-slate-700 font-medium mt-0.5">${r.diagnosis}</p>
+                        
+                        <!-- 진단명 및 진단코드 가독성 강화 박스 -->
+                        <div class="mt-2 bg-teal-50/60 border border-teal-100/80 rounded-xl px-3 py-2 flex items-start justify-between gap-2">
+                            <div class="text-sm text-slate-800 font-semibold leading-snug">
+                                <span class="text-[11px] font-bold text-teal-700 block mb-0.5">진단 및 증상</span>
+                                ${r.diagnosis}
+                            </div>
+                            ${r.diagnosisCode ? `
+                                <span class="shrink-0 px-2 py-1 rounded-lg text-xs font-mono font-bold bg-white text-teal-800 border border-teal-200 shadow-2xs">
+                                    ${r.diagnosisCode}
+                                </span>
+                            ` : ''}
+                        </div>
                     </div>
 
-                    <!-- 투약 요약 박스 (있을 경우만 표시) -->
+                    <!-- 투약 요약 박스 (줄바꿈 유지 및 넉넉한 행간 적용) -->
                     ${(r.pharmacy || r.medications) ? `
-                        <div class="bg-slate-50 p-2.5 rounded-xl text-xs text-slate-600 space-y-1">
-                            ${r.pharmacy ? `<div class="font-semibold text-slate-700">💊 ${r.pharmacy} ${r.days ? `(${r.days})` : ''}</div>` : ''}
-                            ${r.medications ? `<p class="text-slate-600 leading-relaxed line-clamp-2">${r.medications}</p>` : ''}
+                        <div class="bg-slate-50 p-3 rounded-xl border border-slate-100 space-y-1.5">
+                            ${r.pharmacy ? `
+                                <div class="flex items-center justify-between text-xs font-bold text-slate-700 border-b border-slate-200/70 pb-1.5">
+                                    <span>💊 ${r.pharmacy}</span>
+                                    ${r.days ? `<span class="px-2 py-0.5 bg-white rounded-md text-teal-700 border border-slate-200">${r.days}</span>` : ''}
+                                </div>
+                            ` : ''}
+                            ${r.medications ? `
+                                <div class="text-[13px] text-slate-700 leading-relaxed whitespace-pre-line pt-0.5">${r.medications}</div>
+                            ` : ''}
                         </div>
                     ` : ''}
 
@@ -666,6 +686,7 @@
             const form = document.getElementById('recordForm');
             form.reset();
             document.getElementById('aiJsonInput').value = '';
+            clearMultiAi();
 
             // 가족 셀렉트 옵션 채우기
             const memberSelect = document.getElementById('formMember');
@@ -690,6 +711,7 @@
                 document.getElementById('formHospital').value = existingRecord.hospital;
                 document.getElementById('formDepartment').value = existingRecord.department || '';
                 document.getElementById('formDiagnosis').value = existingRecord.diagnosis;
+                document.getElementById('formDiagnosisCode').value = existingRecord.diagnosisCode || '';
                 document.getElementById('formPharmacy').value = existingRecord.pharmacy || '';
                 document.getElementById('formDays').value = existingRecord.days || '';
                 document.getElementById('formMedications').value = existingRecord.medications || '';
@@ -722,6 +744,7 @@
                 hospital: document.getElementById('formHospital').value.trim(),
                 department: document.getElementById('formDepartment').value.trim(),
                 diagnosis: document.getElementById('formDiagnosis').value.trim(),
+                diagnosisCode: document.getElementById('formDiagnosisCode').value.trim().toUpperCase(),
                 pharmacy: document.getElementById('formPharmacy').value.trim(),
                 days: document.getElementById('formDays').value.trim(),
                 medications: document.getElementById('formMedications').value.trim(),
@@ -744,66 +767,144 @@
             renderRecords();
             closeModal('recordModal');
         }
+        // 단일 AI 데이터를 아래 입력 폼에 채우는 헬퍼
+        function fillSingleFormWithAiData(data) {
+            if (data.date) document.getElementById('formDate').value = data.date;
+            if (data.hospital) document.getElementById('formHospital').value = data.hospital;
+            if (data.department) document.getElementById('formDepartment').value = data.department;
+            if (data.diagnosis) document.getElementById('formDiagnosis').value = data.diagnosis;
+            if (data.diagnosisCode) document.getElementById('formDiagnosisCode').value = String(data.diagnosisCode).toUpperCase();
+            if (data.pharmacy) document.getElementById('formPharmacy').value = data.pharmacy;
+            if (data.days) document.getElementById('formDays').value = data.days;
+            if (data.medications) document.getElementById('formMedications').value = data.medications;
+            if (data.hospitalCost !== undefined) document.getElementById('formHospitalCost').value = Number(data.hospitalCost) || 0;
+            if (data.pharmacyCost !== undefined) document.getElementById('formPharmacyCost').value = Number(data.pharmacyCost) || 0;
 
-        function deleteCurrentRecord() {
-            const id = document.getElementById('recordId').value;
-            if (!id) return;
-            records = records.filter(r => r.id !== id);
-            saveRecords();
-            renderRecords();
-            closeModal('recordModal');
-            showToast('기록이 삭제되었습니다.');
-        }
-
-        // AI 도우미 아코디언 토글
-        function toggleAiHelper() {
-            const content = document.getElementById('aiHelperContent');
-            const icon = document.getElementById('aiHelperIcon');
-            content.classList.toggle('hidden');
-            icon.classList.toggle('rotate-180');
-        }
-
-        // AI 프롬프트 클립보드 복사 (iFrame/모바일 호환 execCommand 사용)
-        function copyAiPrompt() {
-            const tempTextarea = document.createElement('textarea');
-            tempTextarea.value = AI_PROMPT_TEXT;
-            document.body.appendChild(tempTextarea);
-            tempTextarea.select();
-            try {
-                document.execCommand('copy');
-                showToast('AI 질문 문구가 복사되었습니다! AI 앱에 붙여넣으세요.');
-            } catch (err) {
-                showToast('복사에 실패했습니다.');
+            // memberHint가 등록된 가족 이름과 일치하면 자동 선택
+            if (data.memberHint) {
+                const matchedMember = members.find(m => data.memberHint.includes(m));
+                if (matchedMember) {
+                    document.getElementById('formMember').value = matchedMember;
+                }
             }
-            document.body.removeChild(tempTextarea);
         }
 
-        // AI가 반환한 JSON 텍스트 파싱 및 폼 자동 채우기
+        // AI가 반환한 JSON 텍스트 파싱 (1건 단일 + 2~3건 다중 동시 지원)
         function parseAiResult() {
             let raw = document.getElementById('aiJsonInput').value.trim();
             if (!raw) return showToast('AI 답변 내용을 먼저 붙여넣어 주세요.');
 
             try {
-                // 마크다운 코드블록(```json ... ```)이 포함되어 있어도 깔끔하게 추출
-                const jsonMatch = raw.match(/\{[\s\S]*\}/);
-                if (!jsonMatch) throw new Error('JSON 형식을 찾을 수 없습니다.');
-                
-                const data = JSON.parse(jsonMatch[0]);
+                // 마크다운 코드블록 제거 후 배열([ ... ]) 또는 단일 객체({ ... }) 추출
+                const cleanRaw = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
+                const parsed = JSON.parse(cleanRaw);
+                const items = Array.isArray(parsed) ? parsed : [parsed];
 
-                if (data.date) document.getElementById('formDate').value = data.date;
-                if (data.hospital) document.getElementById('formHospital').value = data.hospital;
-                if (data.department) document.getElementById('formDepartment').value = data.department;
-                if (data.diagnosis) document.getElementById('formDiagnosis').value = data.diagnosis;
-                if (data.pharmacy) document.getElementById('formPharmacy').value = data.pharmacy;
-                if (data.days) document.getElementById('formDays').value = data.days;
-                if (data.medications) document.getElementById('formMedications').value = data.medications;
-                if (data.hospitalCost !== undefined) document.getElementById('formHospitalCost').value = Number(data.hospitalCost) || 0;
-                if (data.pharmacyCost !== undefined) document.getElementById('formPharmacyCost').value = Number(data.pharmacyCost) || 0;
+                if (items.length === 0) throw new Error('데이터가 비어있습니다.');
 
-                showToast('✨ AI 분석 내용이 입력칸에 자동으로 채워졌습니다!');
+                if (items.length === 1) {
+                    // 1건인 경우 기존 입력 폼에 바로 채우기
+                    clearMultiAi();
+                    fillSingleFormWithAiData(items[0]);
+                    showToast('✨ 1건의 AI 분석 내용이 입력칸에 채워졌습니다!');
+                } else {
+                    // 2건 이상인 경우 다중 일괄 등록 UI 표시
+                    parsedMultiAiItems = items;
+                    renderMultiAiList();
+                    showToast(`✨ 총 ${items.length}건의 기록이 인식되었습니다! 가족을 선택해 저장하세요.`);
+                }
             } catch (e) {
-                showToast('형식을 인식할 수 없습니다. AI가 준 { ... } 전체를 복사했는지 확인해 주세요.');
+                showToast('형식을 인식할 수 없습니다. AI가 준 JSON 전체를 복사했는지 확인해 주세요.');
             }
+        }
+
+        function clearMultiAi() {
+            parsedMultiAiItems = [];
+            document.getElementById('multiAiContainer').classList.add('hidden');
+            document.getElementById('multiAiList').innerHTML = '';
+        }
+
+        function renderMultiAiList() {
+            const container = document.getElementById('multiAiContainer');
+            const listEl = document.getElementById('multiAiList');
+            document.getElementById('multiAiCountText').textContent = `총 ${parsedMultiAiItems.length}건의 기록이 인식되었습니다`;
+            container.classList.remove('hidden');
+
+            listEl.innerHTML = parsedMultiAiItems.map((item, idx) => {
+                // memberHint와 일치하는 가족이 있으면 기본 선택
+                const defaultMember = members.find(m => item.memberHint && item.memberHint.includes(m)) || members[0];
+                const memberOptions = members.map(m => 
+                    `<option value="${m}" ${m === defaultMember ? 'selected' : ''}>${m}</option>`
+                ).join('');
+                const totalCost = (Number(item.hospitalCost) || 0) + (Number(item.pharmacyCost) || 0);
+
+                return `
+                    <div class="bg-white p-3 rounded-xl border border-indigo-200 space-y-2 shadow-2xs">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-xs font-bold text-indigo-600">#${idx + 1}</span>
+                                <select id="multiMember_${idx}" class="px-2 py-1 bg-indigo-50 border border-indigo-200 rounded-lg text-xs font-bold text-indigo-900">
+                                    ${memberOptions}
+                                </select>
+                                ${item.memberHint ? `<span class="text-[11px] text-slate-400">(${item.memberHint})</span>` : ''}
+                            </div>
+                            <button type="button" onclick="loadSingleFromMulti(${idx})" class="text-[11px] text-teal-600 font-semibold hover:underline">
+                                개별수정 폼으로
+                            </button>
+                        </div>
+                        <div class="text-xs text-slate-700 space-y-0.5">
+                            <p class="font-bold">${item.date || '날짜미상'} · ${item.hospital || '병원미상'}</p>
+                            <p class="text-slate-600">${item.diagnosis || '진단명 없음'} ${item.diagnosisCode ? `[${item.diagnosisCode}]` : ''}</p>
+                            <p class="text-slate-500 font-medium">총 ${totalCost.toLocaleString()}원</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 다중 목록 중 1건을 아래 폼으로 내려서 세부 수정하고 싶을 때
+        function loadSingleFromMulti(idx) {
+            const item = parsedMultiAiItems[idx];
+            if (!item) return;
+            const selectedMember = document.getElementById(`multiMember_${idx}`).value;
+            fillSingleFormWithAiData(item);
+            document.getElementById('formMember').value = selectedMember;
+            showToast(`#${idx + 1}번 항목을 아래 입력칸으로 불러왔습니다.`);
+        }
+
+        // 인식된 2~3건 전체 일괄 저장
+        function saveAllMultiAiRecords() {
+            if (parsedMultiAiItems.length === 0) return;
+
+            const today = new Date().toISOString().split('T')[0];
+            parsedMultiAiItems.forEach((item, idx) => {
+                const selectedMember = document.getElementById(`multiMember_${idx}`).value;
+                const newRec = {
+                    id: 'rec_' + Date.now() + '_' + idx + '_' + Math.random().toString(36).substr(2, 4),
+                    updatedAt: Date.now(),
+                    member: selectedMember,
+                    date: item.date || today,
+                    hospital: (item.hospital || '미상 병원').trim(),
+                    department: (item.department || '').trim(),
+                    diagnosis: (item.diagnosis || '진료 기록').trim(),
+                    diagnosisCode: (item.diagnosisCode || '').trim().toUpperCase(),
+                    pharmacy: (item.pharmacy || '').trim(),
+                    days: (item.days || '').trim(),
+                    medications: (item.medications || '').trim(),
+                    hospitalCost: Number(item.hospitalCost) || 0,
+                    pharmacyCost: Number(item.pharmacyCost) || 0,
+                    insuranceStatus: 'unclaimed',
+                    insuranceNote: ''
+                };
+                records.unshift(newRec);
+            });
+
+            const count = parsedMultiAiItems.length;
+            saveRecords();
+            renderRecords();
+            clearMultiAi();
+            closeModal('recordModal');
+            showToast(`🎉 총 ${count}건의 진료 기록이 한 번에 저장되었습니다!`);
         }
 
         // ==========================================
