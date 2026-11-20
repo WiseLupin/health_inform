@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>우리집 건강수첩 - 가족 의학정보 관리</title>
+    <!-- Tailwind CSS 로드 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts (Pretendard / Noto Sans KR) -->
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #f3f4f6;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* 스크롤바 숨김 처리 (가로 스크롤 탭용) */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        /* 모달 애니메이션 */
+        @keyframes slideUp {
+            from { transform: translateY(100%); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+        .animate-slide-up {
+            animation: slideUp 0.25s ease-out forwards;
+        }
+    </style>
+</head>
+<body class="text-slate-800 pb-24 select-none">
+
+    <!-- 상단 헤더 -->
+    <header class="bg-white sticky top-0 z-30 shadow-sm border-b border-slate-100">
+        <div class="max-w-lg mx-auto px-4 h-14 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-xl bg-teal-600 text-white flex items-center justify-center shadow-sm">
+                    <i data-lucide="heart-pulse" class="w-5 h-5"></i>
+                </div>
+                <h1 class="font-bold text-lg text-slate-800 tracking-tight">우리집 건강수첩</h1>
+            </div>
+            <div class="flex items-center gap-1">
+                <button onclick="openModal('familyModal')" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium" title="가족 관리">
+                    <i data-lucide="users" class="w-4 h-4 text-teal-600"></i>
+                    <span>가족관리</span>
+                </button>
+                <button onclick="openModal('backupModal')" class="p-2 text-slate-600 hover:bg-slate-100 rounded-xl transition flex items-center gap-1 text-xs font-medium" title="백업 및 공유">
+                    <i data-lucide="share-2" class="w-4 h-4 text-indigo-600"></i>
+                    <span>공유/백업</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- 가족 구성원 필터 탭 -->
+        <div class="max-w-lg mx-auto px-4 py-2.5 flex items-center gap-2 overflow-x-auto no-scrollbar border-t border-slate-50" id="memberFilterTabs">
+            <!-- JS로 동적 렌더링 -->
+        </div>
+    </header>
+
+    <!-- 메인 콘텐츠 영역 -->
+    <main class="max-w-lg mx-auto px-4 pt-4 space-y-4">
+        
+        <!-- 요약 대시보드 카드 -->
+        <section class="grid grid-cols-3 gap-2.5">
+            <div class="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100">
+                <p class="text-xs text-slate-500 font-medium">총 진료 기록</p>
+                <p class="text-xl font-bold text-slate-800 mt-1" id="statTotalCount">0건</p>
+            </div>
+            <div class="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100 cursor-pointer active:scale-95 transition" onclick="toggleUnclaimedFilter()">
+                <div class="flex items-center justify-between">
+                    <p class="text-xs text-rose-500 font-semibold">실비 미청구</p>
+                    <span id="unclaimedBadge" class="w-2 h-2 rounded-full bg-rose-500 hidden"></span>
+                </div>
+                <p class="text-xl font-bold text-rose-600 mt-1" id="statUnclaimedCount">0건</p>
+            </div>
+            <div class="bg-white p-3.5 rounded-2xl shadow-sm border border-slate-100">
+                <p class="text-xs text-slate-500 font-medium">누적 의료비</p>
+                <p class="text-base font-bold text-teal-700 mt-1.5 truncate" id="statTotalCost">0원</p>
+            </div>
+        </section>
+
+        <!-- 검색 및 필터 바 -->
+        <section class="flex gap-2">
+            <div class="relative flex-1">
+                <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2"></i>
+                <input type="text" id="searchInput" oninput="renderRecords()" placeholder="병원명, 증상, 약 이름 검색..." 
+                    class="w-full pl-9 pr-4 py-2.5 bg-white rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-teal-500 shadow-sm">
+            </div>
+            <button id="filterUnclaimedBtn" onclick="toggleUnclaimedFilter()" 
+                class="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-semibold text-slate-600 whitespace-nowrap shadow-sm transition">
+                미청구만
+            </button>
+        </section>
+
+        <!-- 진료 기록 리스트 -->
+        <section id="recordsList" class="space-y-3">
+            <!-- JS로 동적 렌더링 -->
+        </section>
+
+    </main>
+
+    <!-- 하단 플로팅 추가 버튼 -->
+    <div class="fixed bottom-6 right-0 left-0 max-w-lg mx-auto px-4 pointer-events-none flex justify-end z-20">
+        <button onclick="openRecordModal()" class="pointer-events-auto bg-teal-600 hover:bg-teal-700 active:scale-95 text-white px-5 py-3.5 rounded-full shadow-lg shadow-teal-600/30 flex items-center gap-2 font-bold text-sm transition">
+            <i data-lucide="plus" class="w-5 h-5"></i>
+            <span>진료 기록 추가</span>
+        </button>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 모달 1: 진료 기록 추가 / 수정 (AI 자동입력 포함) -->
+    <!-- ========================================== -->
+    <div id="recordModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full max-w-lg rounded-t-3xl sm:rounded-3xl max-h-[92vh] flex flex-col animate-slide-up shadow-2xl">
+            <!-- 모달 헤더 -->
+            <div class="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                <h2 class="font-bold text-lg text-slate-800" id="recordModalTitle">새 진료 기록 추가</h2>
+                <button onclick="closeModal('recordModal')" class="p-2 text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- 모달 바디 (스크롤 가능) -->
+            <div class="p-5 overflow-y-auto space-y-5 flex-1">
+                
+                <!-- ✨ AI 자동 인식 도우미 아코디언 박스 -->
+                <div class="bg-indigo-50/80 border border-indigo-100 rounded-2xl p-3.5">
+                    <button type="button" onclick="toggleAiHelper()" class="w-full flex items-center justify-between text-left">
+                        <div class="flex items-center gap-2">
+                            <span class="bg-indigo-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-md">AI 자동입력</span>
+                            <span class="text-sm font-bold text-indigo-950">영수증/처방전 AI 결과 붙여넣기</span>
+                        </div>
+                        <i data-lucide="chevron-down" id="aiHelperIcon" class="w-4 h-4 text-indigo-600 transition-transform"></i>
+                    </button>
+                    
+                    <div id="aiHelperContent" class="hidden mt-3 pt-3 border-t border-indigo-100 space-y-3">
+                        <div class="text-xs text-indigo-900 space-y-1 bg-white/70 p-2.5 rounded-xl">
+                            <p class="font-semibold">💡 사용 방법:</p>
+                            <p>1. 아래 <b>[AI 질문 문구 복사]</b> 버튼을 누릅니다.</p>
+                            <p>2. 챗GPT/제미나이에 처방전·영수증 사진과 함께 붙여넣습니다.</p>
+                            <p>3. AI가 답해준 코드를 복사해 아래 칸에 넣고 <b>[자동 채우기]</b>를 누르세요!</p>
+                        </div>
+                        
+                        <button type="button" onclick="copyAiPrompt()" class="w-full py-2 px-3 bg-white border border-indigo-200 hover:bg-indigo-50 text-indigo-700 font-semibold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-2xs transition">
+                            <i data-lucide="copy" class="w-3.5 h-3.5"></i>
+                            <span>1단계: AI 질문 문구 복사하기</span>
+                        </button>
+
+                        <div class="space-y-1.5">
+                            <textarea id="aiJsonInput" rows="3" placeholder='2단계: AI가 생성해준 { "date": ... } 내용을 여기에 붙여넣으세요.' 
+                                class="w-full p-2.5 text-xs bg-white border border-indigo-200 rounded-xl focus:outline-none focus:border-indigo-500 font-mono"></textarea>
+                            <button type="button" onclick="parseAiResult()" class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+                                3단계: 아래 입력칸에 자동 채우기 ✨
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 입력 폼 시작 -->
+                <form id="recordForm" onsubmit="saveRecord(event)" class="space-y-4">
+                    <input type="hidden" id="recordId">
+
+                    <!-- 1. 기본 정보 -->
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
+                            <i data-lucide="hospital" class="w-3.5 h-3.5"></i> 기본 진료 정보
+                        </h3>
+                        
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">가족 구성원 *</label>
+                                <select id="formMember" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-teal-500">
+                                    <!-- JS 렌더링 -->
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">방문 날짜 *</label>
+                                <input type="date" id="formDate" required class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">병원명 *</label>
+                                <input type="text" id="formHospital" required placeholder="예: 서울내과의원" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">진료과</label>
+                                <input type="text" id="formDepartment" placeholder="예: 내과, 소아과" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">증상 및 진단명 *</label>
+                            <input type="text" id="formDiagnosis" required placeholder="예: 급성 인후염, 목감기" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    <!-- 2. 투약 정보 -->
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
+                            <i data-lucide="pill" class="w-3.5 h-3.5"></i> 투약 및 처방 정보
+                        </h3>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">처방 약국</label>
+                                <input type="text" id="formPharmacy" placeholder="예: 온누리약국" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">처방 일수</label>
+                                <input type="text" id="formDays" placeholder="예: 3일분" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">처방약 목록 및 복용법 메모</label>
+                            <textarea id="formMedications" rows="2" placeholder="예: 타이레놀, 항생제(식후 30분 복용)" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500"></textarea>
+                        </div>
+                    </div>
+
+                    <hr class="border-slate-100">
+
+                    <!-- 3. 비용 및 보험 청구 -->
+                    <div class="space-y-3">
+                        <h3 class="text-xs font-bold text-teal-700 uppercase tracking-wider flex items-center gap-1">
+                            <i data-lucide="receipt" class="w-3.5 h-3.5"></i> 비용 및 실비보험 청구
+                        </h3>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">병원 진료비 (원)</label>
+                                <input type="number" id="formHospitalCost" placeholder="0" min="0" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">약국 약제비 (원)</label>
+                                <input type="number" id="formPharmacyCost" placeholder="0" min="0" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">실비 청구 상태</label>
+                                <select id="formInsuranceStatus" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-medium focus:outline-none focus:border-teal-500">
+                                    <option value="unclaimed">🔴 미청구</option>
+                                    <option value="claimed">🟡 청구완료 (심사중)</option>
+                                    <option value="paid">🟢 지급완료</option>
+                                    <option value="none">⚪ 청구대상 아님</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold text-slate-600 mb-1">청구 보험사 / 메모</label>
+                                <input type="text" id="formInsuranceNote" placeholder="예: 삼성화재, 통원실비" class="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-2 flex gap-2">
+                        <button type="button" id="deleteRecordBtn" onclick="deleteCurrentRecord()" class="hidden px-4 py-3 bg-rose-50 text-rose-600 font-bold text-sm rounded-xl hover:bg-rose-100 transition">
+                            삭제
+                        </button>
+                        <button type="submit" class="flex-1 py-3 bg-teal-600 hover:bg-teal-700 text-white font-bold text-sm rounded-xl shadow-md transition">
+                            저장하기
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 모달 2: 가족 구성원 관리 -->
+    <!-- ========================================== -->
+    <div id="familyModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 animate-slide-up shadow-2xl space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h2 class="font-bold text-lg text-slate-800">가족 구성원 관리</h2>
+                <button onclick="closeModal('familyModal')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-full">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <div class="flex gap-2">
+                <input type="text" id="newMemberName" placeholder="새 가족 이름 (예: 첫째, 엄마)" class="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:border-teal-500">
+                <button onclick="addFamilyMember()" class="px-4 py-2.5 bg-teal-600 text-white font-bold text-sm rounded-xl hover:bg-teal-700 transition">
+                    추가
+                </button>
+            </div>
+
+            <div id="familyManageList" class="space-y-2 max-h-60 overflow-y-auto">
+                <!-- JS 동적 렌더링 -->
+            </div>
+            <p class="text-[11px] text-slate-400">※ 가족을 삭제해도 기존에 작성된 진료 기록은 지워지지 않습니다.</p>
+        </div>
+    </div>
+
+    <!-- ========================================== -->
+    <!-- 모달 3: 가족 공유 및 백업/병합 -->
+    <!-- ========================================== -->
+    <div id="backupModal" class="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 hidden flex items-end sm:items-center justify-center">
+        <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 animate-slide-up shadow-2xl space-y-5">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h2 class="font-bold text-lg text-slate-800">가족 정보 공유 및 백업</h2>
+                <button onclick="closeModal('backupModal')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-full">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+
+            <!-- 내보내기 -->
+            <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 space-y-2.5">
+                <div class="flex items-center gap-2 text-slate-800 font-bold text-sm">
+                    <i data-lucide="download" class="w-4 h-4 text-teal-600"></i>
+                    <span>내 데이터 파일로 내보내기</span>
+                </div>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                    현재 스마트폰에 저장된 모든 가족 진료 기록을 백업 파일(.json)로 저장합니다. 카톡으로 아내분께 전송해 보세요!
+                </p>
+                <button onclick="exportBackupFile()" class="w-full py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+                    백업 파일 다운로드 (.json)
+                </button>
+            </div>
+
+            <!-- 불러오기 (스마트 병합) -->
+            <div class="bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100 space-y-2.5">
+                <div class="flex items-center gap-2 text-indigo-950 font-bold text-sm">
+                    <i data-lucide="upload" class="w-4 h-4 text-indigo-600"></i>
+                    <span>가족 백업 파일 불러오기 (스마트 병합)</span>
+                </div>
+                <p class="text-xs text-indigo-900/80 leading-relaxed">
+                    아내나 가족에게 받은 백업 파일을 선택하면, <b>기존 내 기록을 지우지 않고 새로운 기록만 중복 없이 자동으로 합쳐줍니다.</b>
+                </p>
+                <label class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition flex items-center justify-center cursor-pointer">
+                    <span>백업 파일 선택해서 합치기</span>
+                    <input type="file" id="importFileInput" accept=".json" onchange="importAndMergeBackup(event)" class="hidden">
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- 토스트 알림 메시지 박스 (alert 대신 사용) -->
+    <div id="toastBox" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 pointer-events-none transition-all duration-300 opacity-0 -translate-y-2">
+        <div id="toastMessage" class="bg-slate-800 text-white text-xs font-semibold px-4 py-2.5 rounded-full shadow-lg whitespace-nowrap">
+            알림 메시지
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 초기 상태 및 로컬 스토리지 관리
+        // ==========================================
+        const STORAGE_KEYS = {
+            MEMBERS: 'family_med_members_v1',
+            RECORDS: 'family_med_records_v1'
+        };
+
+        let members = [];
+        let records = [];
+        let selectedMemberFilter = 'ALL';
+        let onlyUnclaimedFilter = false;
+
+        // AI에게 복사해 줄 표준 프롬프트 문구
+        const AI_PROMPT_TEXT = `첨부한 병원 영수증이나 처방전 이미지를 분석해서 아래 JSON 형식으로만 정확히 답변해줘. 다른 설명은 쓰지 말고 오직 JSON 코드만 출력해.
+알 수 없는 항목은 빈 문자열("") 또는 숫자 0으로 채워줘.
+
+{
+  "date": "YYYY-MM-DD 형식의 방문일",
+  "hospital": "병원 이름",
+  "department": "진료과 (예: 내과, 소아과 등)",
+  "diagnosis": "증상 또는 진단명 (처방약으로 유추 가능하면 간단히)",
+  "pharmacy": "약국 이름",
+  "days": "총 처방일수 (예: 3일분)",
+  "medications": "처방받은 약 이름들과 복용법 요약",
+  "hospitalCost": 0,
+  "pharmacyCost": 0
+}`;
+
+        // 앱 시작 시 초기화
+        window.onload = function() {
+            loadData();
+            renderMemberTabs();
+            renderRecords();
+            lucide.createIcons();
+        };
+
+        function loadData() {
+            const savedMembers = localStorage.getItem(STORAGE_KEYS.MEMBERS);
+            const savedRecords = localStorage.getItem(STORAGE_KEYS.RECORDS);
+
+            if (savedMembers) {
+                members = JSON.parse(savedMembers);
+            } else {
+                // 기본 가족 구성원 세팅
+                members = ['나', '아내', '자녀'];
+                saveMembers();
+            }
+
+            if (savedRecords) {
+                records = JSON.parse(savedRecords);
+            } else {
+                // 첫 사용자를 위한 샘플 데이터 1건
+                records = [{
+                    id: 'sample_' + Date.now(),
+                    updatedAt: Date.now(),
+                    member: '나',
+                    date: new Date().toISOString().split('T')[0],
+                    hospital: '샘플 연세내과의원',
+                    department: '내과',
+                    diagnosis: '가벼운 몸살감기 (샘플 기록입니다)',
+                    pharmacy: '건강약국',
+                    days: '3일분',
+                    medications: '해열진통제, 소화제 (식후 30분 복용)',
+                    hospitalCost: 12500,
+                    pharmacyCost: 6800,
+                    insuranceStatus: 'unclaimed',
+                    insuranceNote: '실비 청구 필요'
+                }];
+                saveRecords();
+            }
+        }
+
+        function saveMembers() {
+            localStorage.setItem(STORAGE_KEYS.MEMBERS, JSON.stringify(members));
+        }
+
+        function saveRecords() {
+            localStorage.setItem(STORAGE_KEYS.RECORDS, JSON.stringify(records));
+        }
+
+        // ==========================================
+        // 2. 토스트 알림 & 모달 제어
+        // ==========================================
+        let toastTimer;
+        function showToast(msg) {
+            const box = document.getElementById('toastBox');
+            const text = document.getElementById('toastMessage');
+            text.textContent = msg;
+            box.classList.remove('opacity-0', '-translate-y-2');
+            box.classList.add('opacity-100', 'translate-y-0');
+
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                box.classList.remove('opacity-100', 'translate-y-0');
+                box.classList.add('opacity-0', '-translate-y-2');
+            }, 2600);
+        }
+
+        function openModal(id) {
+            document.getElementById(id).classList.remove('hidden');
+            if (id === 'familyModal') renderFamilyManageList();
+        }
+
+        function closeModal(id) {
+            document.getElementById(id).classList.add('hidden');
+        }
+
+        // ==========================================
+        // 3. 가족 구성원 관리 및 필터 탭
+        // ==========================================
+        function renderMemberTabs() {
+            const container = document.getElementById('memberFilterTabs');
+            const allTabs = ['ALL', ...members];
+
+            container.innerHTML = allTabs.map(m => {
+                const isSelected = selectedMemberFilter === m;
+                const label = m === 'ALL' ? '전체 가족' : m;
+                const activeClass = isSelected 
+                    ? 'bg-teal-600 text-white font-bold shadow-xs' 
+                    : 'bg-slate-100 text-slate-600 font-medium hover:bg-slate-200';
+                return `
+                    <button onclick="selectMemberFilter('${m}')" 
+                        class="px-3.5 py-1.5 rounded-full text-xs whitespace-nowrap transition ${activeClass}">
+                        ${label}
+                    </button>
+                `;
+            }).join('');
+        }
+
+        function selectMemberFilter(member) {
+            selectedMemberFilter = member;
+            renderMemberTabs();
+            renderRecords();
+        }
+
+        function renderFamilyManageList() {
+            const list = document.getElementById('familyManageList');
+            list.innerHTML = members.map((m, idx) => `
+                <div class="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                    <span class="font-semibold text-sm text-slate-700">${m}</span>
+                    ${members.length > 1 ? `
+                        <button onclick="removeFamilyMember(${idx})" class="text-xs text-rose-500 hover:text-rose-700 font-semibold px-2 py-1 rounded-lg hover:bg-rose-50">
+                            삭제
+                        </button>
+                    ` : '<span class="text-[11px] text-slate-400">기본</span>'}
+                </div>
+            `).join('');
+        }
+
+        function addFamilyMember() {
+            const input = document.getElementById('newMemberName');
+            const name = input.value.trim();
+            if (!name) return showToast('이름을 입력해 주세요.');
+            if (members.includes(name)) return showToast('이미 등록된 이름입니다.');
+
+            members.push(name);
+            saveMembers();
+            input.value = '';
+            renderFamilyManageList();
+            renderMemberTabs();
+            showToast(`'${name}' 구성원이 추가되었습니다.`);
+        }
+
+        function removeFamilyMember(index) {
+            const removed = members[index];
+            members.splice(index, 1);
+            saveMembers();
+            if (selectedMemberFilter === removed) selectedMemberFilter = 'ALL';
+            renderFamilyManageList();
+            renderMemberTabs();
+            renderRecords();
+            showToast(`'${removed}' 구성원이 삭제되었습니다.`);
+        }
+
+        // ==========================================
+        // 4. 진료 기록 렌더링 및 통계
+        // ==========================================
+        function toggleUnclaimedFilter() {
+            onlyUnclaimedFilter = !onlyUnclaimedFilter;
+            const btn = document.getElementById('filterUnclaimedBtn');
+            if (onlyUnclaimedFilter) {
+                btn.classList.remove('bg-white', 'text-slate-600', 'border-slate-200');
+                btn.classList.add('bg-rose-600', 'text-white', 'border-rose-600');
+            } else {
+                btn.classList.add('bg-white', 'text-slate-600', 'border-slate-200');
+                btn.classList.remove('bg-rose-600', 'text-white', 'border-rose-600');
+            }
+            renderRecords();
+        }
+
+        function getInsuranceBadge(status) {
+            switch(status) {
+                case 'unclaimed':
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-rose-100 text-rose-700">실비 미청구</span>`;
+                case 'claimed':
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-amber-100 text-amber-700">청구완료</span>`;
+                case 'paid':
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-bold bg-emerald-100 text-emerald-700">지급완료</span>`;
+                default:
+                    return `<span class="px-2 py-0.5 rounded-md text-[11px] font-medium bg-slate-100 text-slate-500">청구대상 아님</span>`;
+            }
+        }
+
+        function renderRecords() {
+            const query = document.getElementById('searchInput').value.toLowerCase().trim();
+            
+            // 1. 가족 필터 먼저 적용 (상단 대시보드 통계용)
+            const memberFiltered = records.filter(r => selectedMemberFilter === 'ALL' || r.member === selectedMemberFilter);
+
+            // 대시보드 통계 업데이트
+            const totalCount = memberFiltered.length;
+            const unclaimedCount = memberFiltered.filter(r => r.insuranceStatus === 'unclaimed').length;
+            const totalCost = memberFiltered.reduce((sum, r) => sum + (Number(r.hospitalCost) || 0) + (Number(r.pharmacyCost) || 0), 0);
+
+            document.getElementById('statTotalCount').textContent = `${totalCount}건`;
+            document.getElementById('statUnclaimedCount').textContent = `${unclaimedCount}건`;
+            document.getElementById('statTotalCost').textContent = `${totalCost.toLocaleString()}원`;
+            
+            const badge = document.getElementById('unclaimedBadge');
+            if (unclaimedCount > 0) badge.classList.remove('hidden');
+            else badge.classList.add('hidden');
+
+            // 2. 검색어 & 미청구 필터 적용 후 최신날짜순 정렬
+            const finalFiltered = memberFiltered
+                .filter(r => {
+                    if (onlyUnclaimedFilter && r.insuranceStatus !== 'unclaimed') return false;
+                    if (!query) return true;
+                    const target = `${r.hospital} ${r.department} ${r.diagnosis} ${r.pharmacy} ${r.medications} ${r.member}`.toLowerCase();
+                    return target.includes(query);
+                })
+                .sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            const container = document.getElementById('recordsList');
+
+            if (finalFiltered.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-white rounded-2xl p-8 text-center border border-slate-100 space-y-2">
+                        <p class="text-slate-400 text-sm font-medium">표시할 진료 기록이 없습니다.</p>
+                        <p class="text-xs text-slate-400">우측 하단 [진료 기록 추가] 버튼을 눌러 기록해 보세요!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = finalFiltered.map(r => {
+                const sumCost = (Number(r.hospitalCost) || 0) + (Number(r.pharmacyCost) || 0);
+                return `
+                <article onclick="openRecordModal('${r.id}')" class="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 hover:border-teal-200 active:scale-[0.99] transition cursor-pointer space-y-2.5">
+                    <!-- 상단: 가족뱃지, 날짜, 실비상태 -->
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="px-2.5 py-0.5 rounded-lg text-xs font-bold bg-teal-50 text-teal-700 border border-teal-100">
+                                ${r.member}
+                            </span>
+                            <span class="text-xs font-medium text-slate-400">${r.date}</span>
+                        </div>
+                        <div onclick="event.stopPropagation(); quickCycleInsurance('${r.id}')" title="클릭하여 청구 상태 변경">
+                            ${getInsuranceBadge(r.insuranceStatus)}
+                        </div>
+                    </div>
+
+                    <!-- 중단: 병원명, 진료과, 진단명 -->
+                    <div>
+                        <div class="flex items-baseline gap-1.5">
+                            <h3 class="font-bold text-base text-slate-800">${r.hospital}</h3>
+                            ${r.department ? `<span class="text-xs text-slate-500 font-medium">${r.department}</span>` : ''}
+                        </div>
+                        <p class="text-sm text-slate-700 font-medium mt-0.5">${r.diagnosis}</p>
+                    </div>
+
+                    <!-- 투약 요약 박스 (있을 경우만 표시) -->
+                    ${(r.pharmacy || r.medications) ? `
+                        <div class="bg-slate-50 p-2.5 rounded-xl text-xs text-slate-600 space-y-1">
+                            ${r.pharmacy ? `<div class="font-semibold text-slate-700">💊 ${r.pharmacy} ${r.days ? `(${r.days})` : ''}</div>` : ''}
+                            ${r.medications ? `<p class="text-slate-600 leading-relaxed line-clamp-2">${r.medications}</p>` : ''}
+                        </div>
+                    ` : ''}
+
+                    <!-- 하단: 비용 및 보험 메모 -->
+                    <div class="pt-2 border-t border-slate-50 flex items-center justify-between text-xs">
+                        <span class="text-slate-400 truncate max-w-[55%]">
+                            ${r.insuranceNote ? `📝 ${r.insuranceNote}` : '탭하여 상세보기 / 수정'}
+                        </span>
+                        <span class="font-bold text-slate-800 text-sm">
+                            총 ${sumCost.toLocaleString()}원
+                        </span>
+                    </div>
+                </article>
+                `;
+            }).join('');
+        }
+
+        // 카드에서 실비 뱃지 탭 시 상태 빠른 전환
+        function quickCycleInsurance(id) {
+            const idx = records.findIndex(r => r.id === id);
+            if (idx === -1) return;
+            const order = ['unclaimed', 'claimed', 'paid', 'none'];
+            const next = order[(order.indexOf(records[idx].insuranceStatus) + 1) % order.length];
+            records[idx].insuranceStatus = next;
+            records[idx].updatedAt = Date.now();
+            saveRecords();
+            renderRecords();
+            showToast('실비 청구 상태가 변경되었습니다.');
+        }
+
+        // ==========================================
+        // 5. 기록 추가 / 수정 모달 & AI 자동 채우기
+        // ==========================================
+        function openRecordModal(id = null) {
+            const form = document.getElementById('recordForm');
+            form.reset();
+            document.getElementById('aiJsonInput').value = '';
+
+            // 가족 셀렉트 옵션 채우기
+            const memberSelect = document.getElementById('formMember');
+            // 기존 기록의 구성원이 삭제된 상태일 수도 있으므로 포함 처리
+            const existingRecord = id ? records.find(r => r.id === id) : null;
+            const optionMembers = [...members];
+            if (existingRecord && !optionMembers.includes(existingRecord.member)) {
+                optionMembers.push(existingRecord.member);
+            }
+            memberSelect.innerHTML = optionMembers.map(m => `<option value="${m}">${m}</option>`).join('');
+
+            const deleteBtn = document.getElementById('deleteRecordBtn');
+            const titleEl = document.getElementById('recordModalTitle');
+
+            if (existingRecord) {
+                titleEl.textContent = '진료 기록 수정';
+                deleteBtn.classList.remove('hidden');
+
+                document.getElementById('recordId').value = existingRecord.id;
+                memberSelect.value = existingRecord.member;
+                document.getElementById('formDate').value = existingRecord.date;
+                document.getElementById('formHospital').value = existingRecord.hospital;
+                document.getElementById('formDepartment').value = existingRecord.department || '';
+                document.getElementById('formDiagnosis').value = existingRecord.diagnosis;
+                document.getElementById('formPharmacy').value = existingRecord.pharmacy || '';
+                document.getElementById('formDays').value = existingRecord.days || '';
+                document.getElementById('formMedications').value = existingRecord.medications || '';
+                document.getElementById('formHospitalCost').value = existingRecord.hospitalCost || '';
+                document.getElementById('formPharmacyCost').value = existingRecord.pharmacyCost || '';
+                document.getElementById('formInsuranceStatus').value = existingRecord.insuranceStatus || 'unclaimed';
+                document.getElementById('formInsuranceNote').value = existingRecord.insuranceNote || '';
+            } else {
+                titleEl.textContent = '새 진료 기록 추가';
+                deleteBtn.classList.add('hidden');
+                document.getElementById('recordId').value = '';
+                document.getElementById('formDate').value = new Date().toISOString().split('T')[0];
+                if (selectedMemberFilter !== 'ALL') {
+                    memberSelect.value = selectedMemberFilter;
+                }
+            }
+
+            openModal('recordModal');
+        }
+
+        function saveRecord(e) {
+            e.preventDefault();
+            const id = document.getElementById('recordId').value;
+            
+            const recordData = {
+                id: id || 'rec_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
+                updatedAt: Date.now(),
+                member: document.getElementById('formMember').value,
+                date: document.getElementById('formDate').value,
+                hospital: document.getElementById('formHospital').value.trim(),
+                department: document.getElementById('formDepartment').value.trim(),
+                diagnosis: document.getElementById('formDiagnosis').value.trim(),
+                pharmacy: document.getElementById('formPharmacy').value.trim(),
+                days: document.getElementById('formDays').value.trim(),
+                medications: document.getElementById('formMedications').value.trim(),
+                hospitalCost: Number(document.getElementById('formHospitalCost').value) || 0,
+                pharmacyCost: Number(document.getElementById('formPharmacyCost').value) || 0,
+                insuranceStatus: document.getElementById('formInsuranceStatus').value,
+                insuranceNote: document.getElementById('formInsuranceNote').value.trim()
+            };
+
+            if (id) {
+                const idx = records.findIndex(r => r.id === id);
+                if (idx !== -1) records[idx] = recordData;
+                showToast('진료 기록이 수정되었습니다.');
+            } else {
+                records.unshift(recordData);
+                showToast('새 진료 기록이 저장되었습니다.');
+            }
+
+            saveRecords();
+            renderRecords();
+            closeModal('recordModal');
+        }
+
+        function deleteCurrentRecord() {
+            const id = document.getElementById('recordId').value;
+            if (!id) return;
+            records = records.filter(r => r.id !== id);
+            saveRecords();
+            renderRecords();
+            closeModal('recordModal');
+            showToast('기록이 삭제되었습니다.');
+        }
+
+        // AI 도우미 아코디언 토글
+        function toggleAiHelper() {
+            const content = document.getElementById('aiHelperContent');
+            const icon = document.getElementById('aiHelperIcon');
+            content.classList.toggle('hidden');
+            icon.classList.toggle('rotate-180');
+        }
+
+        // AI 프롬프트 클립보드 복사 (iFrame/모바일 호환 execCommand 사용)
+        function copyAiPrompt() {
+            const tempTextarea = document.createElement('textarea');
+            tempTextarea.value = AI_PROMPT_TEXT;
+            document.body.appendChild(tempTextarea);
+            tempTextarea.select();
+            try {
+                document.execCommand('copy');
+                showToast('AI 질문 문구가 복사되었습니다! AI 앱에 붙여넣으세요.');
+            } catch (err) {
+                showToast('복사에 실패했습니다.');
+            }
+            document.body.removeChild(tempTextarea);
+        }
+
+        // AI가 반환한 JSON 텍스트 파싱 및 폼 자동 채우기
+        function parseAiResult() {
+            let raw = document.getElementById('aiJsonInput').value.trim();
+            if (!raw) return showToast('AI 답변 내용을 먼저 붙여넣어 주세요.');
+
+            try {
+                // 마크다운 코드블록(```json ... ```)이 포함되어 있어도 깔끔하게 추출
+                const jsonMatch = raw.match(/\{[\s\S]*\}/);
+                if (!jsonMatch) throw new Error('JSON 형식을 찾을 수 없습니다.');
+                
+                const data = JSON.parse(jsonMatch[0]);
+
+                if (data.date) document.getElementById('formDate').value = data.date;
+                if (data.hospital) document.getElementById('formHospital').value = data.hospital;
+                if (data.department) document.getElementById('formDepartment').value = data.department;
+                if (data.diagnosis) document.getElementById('formDiagnosis').value = data.diagnosis;
+                if (data.pharmacy) document.getElementById('formPharmacy').value = data.pharmacy;
+                if (data.days) document.getElementById('formDays').value = data.days;
+                if (data.medications) document.getElementById('formMedications').value = data.medications;
+                if (data.hospitalCost !== undefined) document.getElementById('formHospitalCost').value = Number(data.hospitalCost) || 0;
+                if (data.pharmacyCost !== undefined) document.getElementById('formPharmacyCost').value = Number(data.pharmacyCost) || 0;
+
+                showToast('✨ AI 분석 내용이 입력칸에 자동으로 채워졌습니다!');
+            } catch (e) {
+                showToast('형식을 인식할 수 없습니다. AI가 준 { ... } 전체를 복사했는지 확인해 주세요.');
+            }
+        }
+
+        // ==========================================
+        // 6. 백업 파일 내보내기 및 스마트 병합(Merge)
+        // ==========================================
+        function exportBackupFile() {
+            const backupPayload = {
+                app: 'FamilyMedicalNote',
+                version: 1,
+                exportedAt: new Date().toISOString(),
+                members: members,
+                records: records
+            };
+
+            const dataStr = JSON.stringify(backupPayload, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            
+            const today = new Date().toISOString().split('T')[0];
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `우리집건강수첩_백업_${today}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            showToast('백업 파일이 다운로드되었습니다!');
+        }
+
+        function importAndMergeBackup(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const imported = JSON.parse(e.target.result);
+                    if (!imported.records || !Array.isArray(imported.records)) {
+                        throw new Error('올바른 백업 파일이 아닙니다.');
+                    }
+
+                    // 1. 가족 구성원 목록 중복 없이 병합
+                    if (Array.isArray(imported.members)) {
+                        imported.members.forEach(m => {
+                            if (!members.includes(m)) members.push(m);
+                        });
+                        saveMembers();
+                    }
+
+                    // 2. 진료 기록 스마트 병합 (ID 기준 중복 방지 & 최신 수정본 우선)
+                    const recordMap = new Map();
+                    records.forEach(r => recordMap.set(r.id, r));
+
+                    let addedCount = 0;
+                    let updatedCount = 0;
+
+                    imported.records.forEach(impRec => {
+                        if (!recordMap.has(impRec.id)) {
+                            recordMap.set(impRec.id, impRec);
+                            addedCount++;
+                        } else {
+                            const existing = recordMap.get(impRec.id);
+                            if ((impRec.updatedAt || 0) > (existing.updatedAt || 0)) {
+                                recordMap.set(impRec.id, impRec);
+                                updatedCount++;
+                            }
+                        }
+                    });
+
+                    records = Array.from(recordMap.values());
+                    saveRecords();
+
+                    renderMemberTabs();
+                    renderRecords();
+                    closeModal('backupModal');
+                    showToast(`병합 완료! 새 기록 ${addedCount}건 추가, ${updatedCount}건 업데이트됨`);
+                } catch (err) {
+                    showToast('파일을 읽는 중 오류가 발생했습니다. 올바른 백업 파일인지 확인해 주세요.');
+                } finally {
+                    event.target.value = ''; // 같은 파일 재선택 가능하도록 초기화
+                }
+            };
+            reader.readAsText(file);
+        }
+    </script>
+</body>
+</html>
