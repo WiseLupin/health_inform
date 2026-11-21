@@ -121,6 +121,7 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .gpick button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:14px;color:var(--ink)}
 .gpick button.on{background:var(--main);border-color:var(--main);color:#fff}
 .gpick button.add{border-style:dashed;color:var(--main)}
+[hidden]{display:none!important}
 </style>
 </head>
 <body>
@@ -140,7 +141,6 @@ details summary{cursor:pointer;font-weight:600;padding:4px 0}
 
 <div class="modal" id="modal"><div class="sheet" id="sheet"></div></div>
 <div class="toast" id="toast"></div>
-<input type="file" id="fileIn" accept=".json,application/json" hidden>
 
 <script>
 /* ================= 데이터 ================= */
@@ -153,7 +153,7 @@ const INS = {
   none:{label:'청구안함',cls:'t-no'}
 };
 let db = load();
-let ui = { tab:'records', member:'all', q:'', insFilter:'unclaimed', open:new Set() };
+let ui = { tab:'records', member:'all', q:'', insFilter:'unclaimed', open:new Set(), view:'list' };
 
 function blank(){ return {app:'medinfo',version:2,members:[],groups:[],records:[],deleted:[],lastBackup:null}; }
 // 예전 형식(v1) 기록을 새 형식으로 바꿈
@@ -294,7 +294,7 @@ function recCard(r, showGroups){
   const hasPay = r.hospitalPaid!=null || r.pharmacyPaid!=null || r.pharmacy;
   return `<div class="card rec" data-id="${r.id}">
     <div class="row between">
-      <div class="row">${showGroups?whoTag(r.memberId):''}<span class="muted">${esc(r.date)}</span></div>
+      <div class="row">${showGroups&&ui.member==='all'?whoTag(r.memberId):''}<span class="muted">${esc(r.date)}</span></div>
     </div>
     <h3 style="margin-top:4px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted" style="font-weight:400">· ${esc(r.department)}</span>`:''}</h3>
     ${showGroups&&gs.length?`<div style="margin-top:4px">${gs.map(g=>`<span class="gtag">${esc(g.name)}</span>`).join('')}</div>`:''}
@@ -335,19 +335,28 @@ function memberSection(m){
 function viewRecords(v){
   const q = ui.q.trim().toLowerCase();
   let body = '';
-  if(q){
-    const list = db.records.filter(r=> ui.member==='all' || r.memberId===ui.member).filter(r=>searchHit(r,q)).sort(byDateDesc);
-    body = `<p class="muted">검색 결과 ${list.length}건</p>` + list.map(r=>recCard(r,true)).join('');
+  const toggle = `<div class="row between" style="margin:10px 0 4px;gap:10px">
+      <div class="seg" id="viewT" style="flex:1">
+        <button data-v="list" class="${ui.view==='list'?'on':''}">📋 날짜순</button>
+        <button data-v="group" class="${ui.view==='group'?'on':''}">📁 그룹별</button>
+      </div>
+      ${ui.member!=='all'?`<button class="btn ghost sm" data-gm="${ui.member}">그룹 관리</button>`:''}
+    </div>`;
+  if(q || ui.view==='list'){
+    const list = db.records.filter(r=> ui.member==='all' || r.memberId===ui.member).filter(r=>!q||searchHit(r,q)).sort(byDateDesc);
+    body = (q?`<p class="muted">검색 결과 ${list.length}건</p>`:'') +
+      (list.length ? list.map(r=>recCard(r,true)).join('') : `<div class="empty">기록이 없어요.<br>오른쪽 아래 ＋ 버튼이나 <b>캡쳐등록</b> 탭으로 추가하세요.</div>`);
   } else if(ui.member==='all'){
     body = db.members.map(m=>`<div class="mem-h">${whoTag(m.id)}<button class="btn ghost sm" data-gm="${m.id}">그룹 관리</button></div>${memberSection(m)}`).join('');
   } else {
-    body = `<div class="row between" style="margin:6px 0"><span class="muted small">그룹을 누르면 기록이 펼쳐져요</span>
-      <button class="btn ghost sm" data-gm="${ui.member}">그룹 관리</button></div>` + memberSection(member(ui.member));
+    body = `<p class="muted small" style="margin:4px 0">그룹을 누르면 기록이 펼쳐져요</p>` + memberSection(member(ui.member));
   }
   v.innerHTML = memberChips() +
     `<input type="search" id="q" placeholder="병원·진단명·약·효능·그룹 검색" value="${esc(ui.q)}">` +
-    backupReminder() + body;
+    (q?'':toggle) + backupReminder() + body;
   bindChips(); bindSearch();
+  const vt = document.getElementById('viewT');
+  if(vt) vt.onclick = e=>{ const b=e.target.closest('[data-v]'); if(b){ ui.view=b.dataset.v; render(); } };
   v.querySelectorAll('.grp-h').forEach(h=> h.onclick = ()=>{
     const box = h.parentElement, k = box.dataset.key;
     if(ui.open.has(k)) ui.open.delete(k); else ui.open.add(k);
@@ -877,9 +886,17 @@ async function shareBackup(){
     catch(e){ if(e.name!=='AbortError') exportBackup(); }
   } else exportBackup();
 }
-function pickBackup(){ const f=document.getElementById('fileIn'); f.value=''; f.click(); }
-document.getElementById('fileIn').addEventListener('change', e=>{
-  const file = e.target.files[0]; if(!file) return;
+function pickBackup(){
+  // 파일 선택 칸은 화면에 두지 않고, 누를 때만 잠깐 만들어 씀
+  const f = document.createElement('input');
+  f.type='file'; f.accept='.json,application/json';
+  f.style.cssText='position:fixed;left:-9999px;width:1px;height:1px;opacity:0';
+  document.body.appendChild(f);
+  f.addEventListener('change', ()=>{ handleBackupFile(f.files[0]); f.remove(); });
+  f.click();
+}
+function handleBackupFile(file){
+  if(!file) return;
   const rd = new FileReader();
   rd.onload = ()=>{
     let inc;
@@ -890,7 +907,7 @@ document.getElementById('fileIn').addEventListener('change', e=>{
     alert(`가져오기 완료\n· 가족 ${res.mAdd}명 추가\n· 그룹 ${res.gAdd}개 추가\n· 기록 ${res.rAdd}건 추가, ${res.rUpd}건 갱신${res.rDel?`, ${res.rDel}건 삭제 반영`:''}`);
   };
   rd.readAsText(file);
-});
+}
 function mergeBackup(inc){
   const res = {mAdd:0,gAdd:0,rAdd:0,rUpd:0,rDel:0};
   const delMap = new Map(db.deleted.map(d=>[d.id,d.at]));
