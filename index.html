@@ -102,6 +102,25 @@ pre.prompt{white-space:pre-wrap;word-break:break-all;background:#f0ece2;border-r
 details summary{cursor:pointer;font-weight:600;padding:4px 0}
 .steps{margin:6px 0;padding-left:20px;font-size:14px}
 .steps li{margin:3px 0}
+.grp{background:var(--card);border:1px solid var(--line);border-radius:var(--r);margin:10px 0;overflow:hidden}
+.grp-h{display:flex;align-items:center;gap:8px;padding:12px 14px;cursor:pointer}
+.grp-h .nm{font-weight:700;flex:1;min-width:0}
+.grp-h .arr{color:var(--sub);transition:transform .15s}
+.grp.open .grp-h .arr{transform:rotate(90deg)}
+.grp-b{display:none;padding:0 10px 4px;border-top:1px solid var(--line);background:#faf7f0}
+.grp.open .grp-b{display:block}
+.grp-b .card{margin:8px 0}
+.mem-h{display:flex;align-items:center;justify-content:space-between;margin:18px 0 4px}
+.mem-h b{font-size:16px}
+.rec .meds li{padding:3px 0}
+.rec .meds .eff{display:block;color:var(--sub);font-size:12px;padding-left:22px;line-height:1.35}
+.pay{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font-size:14px}
+.pay span{color:var(--sub)}
+.gtag{display:inline-block;background:var(--main-soft);color:var(--main);border-radius:6px;padding:1px 7px;font-size:12px;margin:0 4px 2px 0}
+.gpick{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.gpick button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:6px 12px;font-size:14px;color:var(--ink)}
+.gpick button.on{background:var(--main);border-color:var(--main);color:#fff}
+.gpick button.add{border-style:dashed;color:var(--main)}
 </style>
 </head>
 <body>
@@ -134,15 +153,34 @@ const INS = {
   none:{label:'청구안함',cls:'t-no'}
 };
 let db = load();
-let ui = { tab:'records', member:'all', q:'', insFilter:'unclaimed' };
+let ui = { tab:'records', member:'all', q:'', insFilter:'unclaimed', open:new Set() };
 
-function blank(){ return {app:'medinfo',version:1,members:[],records:[],deleted:[],lastBackup:null}; }
+function blank(){ return {app:'medinfo',version:2,members:[],groups:[],records:[],deleted:[],lastBackup:null}; }
+// 예전 형식(v1) 기록을 새 형식으로 바꿈
+function migrate(d){
+  d.groups = Array.isArray(d.groups) ? d.groups : [];
+  d.deleted = Array.isArray(d.deleted) ? d.deleted : [];
+  d.members = Array.isArray(d.members) ? d.members : [];
+  (d.records||[]).forEach(r=>{
+    if(!('hospitalPaid' in r) && !('pharmacyPaid' in r)){
+      r.hospitalPaid = null; r.pharmacyPaid = null;
+      if(r.copay!=null){
+        if(/약국/.test(r.hospital||'')) r.pharmacyPaid = r.copay; else r.hospitalPaid = r.copay;
+      }
+    }
+    if(r.pharmacy===undefined) r.pharmacy = '';
+    if(!Array.isArray(r.groupIds)) r.groupIds = [];
+    r.medications = (r.medications||[]).map(m=>({name:'',ingredient:'',strength:'',effect:'',dosage:'',frequency:'',days:null,...m}));
+    r.insurance = r.insurance || {status:'unclaimed',claimDate:'',paidAmount:null};
+  });
+  d.version = 2;
+  return d;
+}
 function load(){
   try{
     const raw = localStorage.getItem(KEY);
     if(!raw) return blank();
-    const d = JSON.parse(raw);
-    return Object.assign(blank(), d);
+    return migrate(Object.assign(blank(), JSON.parse(raw)));
   }catch(e){ return blank(); }
 }
 function save(){
@@ -155,7 +193,11 @@ const today = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimez
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const won = n => (n===null||n===undefined||n==='') ? '' : Number(n).toLocaleString('ko-KR')+'원';
 const toNum = v => { if(v===null||v===undefined||v==='') return null; const n = Number(String(v).replace(/[^\d.-]/g,'')); return isNaN(n)?null:n; };
+const paidOf = r => (Number(r.hospitalPaid)||0) + (Number(r.pharmacyPaid)||0);
 const member = id => db.members.find(m=>m.id===id);
+const groupsOf = mid => db.groups.filter(g=>g.memberId===mid).sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+const group = id => db.groups.find(g=>g.id===id);
+const nk = s => String(s||'').replace(/\s/g,'');
 function whoTag(id){
   const m = member(id);
   if(!m) return '<span class="who" style="background:#999">미지정</span>';
@@ -171,19 +213,33 @@ function normDate(s){
   if(!m) return '';
   return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
 }
-// 브라우저가 저장소를 임의로 지우지 않도록 요청
+const byDateDesc = (a,b)=> (b.date||'').localeCompare(a.date||'') || (b.updatedAt||'').localeCompare(a.updatedAt||'');
+// 같은 사람이 같은 병원에서 가장 최근에 쓴 그룹
+function suggestGroups(memberId, hospital){
+  if(!hospital) return [];
+  const last = db.records.filter(r=>r.memberId===memberId && nk(r.hospital)===nk(hospital) && r.groupIds?.length).sort(byDateDesc)[0];
+  return last ? last.groupIds.filter(id=>group(id)) : [];
+}
+function newGroup(memberId){
+  const name = (prompt('새 그룹 이름을 입력하세요.\n예: 하지불안 관련 진료') || '').trim();
+  if(!name) return null;
+  const ex = db.groups.find(g=>g.memberId===memberId && nk(g.name)===nk(name));
+  if(ex) return ex;
+  const g = {id:uid(), memberId, name, updatedAt:now()};
+  db.groups.push(g); save(); return g;
+}
 try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){}
 
 /* ================= 화면 전환 ================= */
 document.getElementById('nav').addEventListener('click', e=>{
   const b = e.target.closest('button'); if(!b) return;
-  ui.tab = b.dataset.tab; render(); window.scrollTo(0,0);
+  ui.tab = b.dataset.tab; ui.q=''; render(); window.scrollTo(0,0);
 });
 document.getElementById('fab').onclick = ()=> openEditor();
 
 function render(){
   document.querySelectorAll('#nav button').forEach(b=>b.classList.toggle('on', b.dataset.tab===ui.tab));
-  document.getElementById('fab').style.display = (ui.tab==='records') ? '' : 'none';
+  document.getElementById('fab').style.display = (ui.tab==='records' && db.members.length) ? '' : 'none';
   const unclaimed = db.records.filter(r=>(r.insurance?.status||'unclaimed')==='unclaimed').length;
   document.getElementById('hsub').textContent =
     `가족 ${db.members.length}명 · 기록 ${db.records.length}건` + (unclaimed?` · 미청구 ${unclaimed}건`:'');
@@ -210,7 +266,6 @@ function bindWelcome(){
   document.getElementById('wAdd').onclick = ()=>openMember();
   document.getElementById('wImp').onclick = ()=>pickBackup();
 }
-
 function memberChips(){
   return `<div class="chips" id="chips">
     <button class="chip ${ui.member==='all'?'on':''}" data-m="all">전체</button>
@@ -222,49 +277,84 @@ function bindChips(){
     const b = e.target.closest('[data-m]'); if(!b) return; ui.member = b.dataset.m; render();
   };
 }
-function filtered(){
-  const q = ui.q.trim().toLowerCase();
-  return db.records
-    .filter(r=> ui.member==='all' || r.memberId===ui.member)
-    .filter(r=>{
-      if(!q) return true;
-      const hay = [r.hospital,r.department,r.diagnosis,r.symptoms,r.memo,
-        ...(r.medications||[]).flatMap(m=>[m.name,m.ingredient])].join(' ').toLowerCase();
-      return hay.includes(q);
-    })
-    .sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.updatedAt||'').localeCompare(a.updatedAt||''));
+function bindSearch(){
+  const q = document.getElementById('q');
+  q.oninput = ()=>{ ui.q = q.value; const pos=q.selectionStart; render(); const n=document.getElementById('q'); n.focus(); n.setSelectionRange(pos,pos); };
 }
 
 /* ================= 진료기록 ================= */
-function recCard(r){
-  const st = INS[r.insurance?.status||'unclaimed'];
-  const meds = (r.medications||[]).filter(m=>m.name);
+function medLine(m){
+  const inner = [m.ingredient, m.strength].filter(Boolean).join(', ');
+  return `<li>💊 <b>${esc(m.name||m.ingredient)}</b>${inner?` <span class="muted">(${esc(inner)})</span>`:''}
+    ${m.effect?`<span class="eff">${esc(m.effect)}</span>`:''}</li>`;
+}
+function recCard(r, showGroups){
+  const meds = (r.medications||[]).filter(m=>m.name||m.ingredient);
+  const gs = (r.groupIds||[]).map(group).filter(Boolean);
+  const hasPay = r.hospitalPaid!=null || r.pharmacyPaid!=null || r.pharmacy;
   return `<div class="card rec" data-id="${r.id}">
     <div class="row between">
-      <div class="row">${whoTag(r.memberId)}<span class="muted">${esc(r.date)}</span></div>
-      <span class="tag ${st.cls}">${st.label}</span>
+      <div class="row">${showGroups?whoTag(r.memberId):''}<span class="muted">${esc(r.date)}</span></div>
     </div>
-    <h3 style="margin-top:6px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted">· ${esc(r.department)}</span>`:''}</h3>
-    ${r.diagnosis?`<div class="small">🩺 ${esc(r.diagnosis)}</div>`:''}
+    <h3 style="margin-top:4px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted" style="font-weight:400">· ${esc(r.department)}</span>`:''}</h3>
+    ${showGroups&&gs.length?`<div style="margin-top:4px">${gs.map(g=>`<span class="gtag">${esc(g.name)}</span>`).join('')}</div>`:''}
+    ${r.diagnosis?`<div class="small" style="margin-top:4px">🩺 ${esc(r.diagnosis)}</div>`:''}
     ${r.symptoms?`<div class="small muted">${esc(r.symptoms)}</div>`:''}
-    ${meds.length?`<ul class="meds">${meds.map(m=>`<li>💊 ${esc(m.name)}${m.ingredient?` <span class="ing">(${esc(m.ingredient)})</span>`:''}${medDose(m)?` <span class="ing">· ${esc(medDose(m))}</span>`:''}</li>`).join('')}</ul>`:''}
-    ${(r.copay!=null||r.totalCost!=null)?`<div class="small" style="margin-top:6px">본인부담 <b>${won(r.copay)||'-'}</b>${r.totalCost!=null?` <span class="muted">/ 총 진료비 ${won(r.totalCost)}</span>`:''}</div>`:''}
+    ${meds.length?`<ul class="meds">${meds.map(medLine).join('')}</ul>`:''}
+    ${hasPay?`<div class="pay">
+      <div><span>병원비</span> <b>${won(r.hospitalPaid)||'-'}</b></div>
+      <div><span>약제비</span> <b>${won(r.pharmacyPaid)||'-'}</b>${r.pharmacy?` <span>(${esc(r.pharmacy)})</span>`:''}</div>
+    </div>`:''}
   </div>`;
 }
-function medDose(m){
-  return [m.dosage, m.frequency, m.days?`${m.days}일분`:''].filter(Boolean).join(' · ');
+function searchHit(r, q){
+  const g = (r.groupIds||[]).map(id=>group(id)?.name||'');
+  const hay = [r.hospital,r.pharmacy,r.department,r.diagnosis,r.symptoms,r.memo,...g,
+    ...(r.medications||[]).flatMap(m=>[m.name,m.ingredient,m.effect])].join(' ').toLowerCase();
+  return hay.includes(q);
+}
+function groupBox(key, title, recs, sub){
+  const open = ui.open.has(key);
+  const total = recs.reduce((a,r)=>a+paidOf(r),0);
+  return `<div class="grp ${open?'open':''}" data-key="${esc(key)}">
+    <div class="grp-h"><span class="nm">${title}</span>
+      <span class="muted small" style="text-align:right">${recs.length}건${recs[0]?` · 최근 ${esc(recs[0].date)}`:''}${total?`<br>결제 ${won(total)}`:''}</span>
+      <span class="arr">▶</span></div>
+    <div class="grp-b">${sub||''}${recs.length?recs.map(r=>recCard(r,false)).join(''):'<div class="muted small" style="padding:12px 4px">아직 기록이 없어요.</div>'}</div>
+  </div>`;
+}
+function memberSection(m){
+  const recs = db.records.filter(r=>r.memberId===m.id).sort(byDateDesc);
+  const gs = groupsOf(m.id).map(g=>({g, recs:recs.filter(r=>r.groupIds?.includes(g.id))}))
+    .sort((a,b)=>(b.recs[0]?.date||'').localeCompare(a.recs[0]?.date||''));
+  const none = recs.filter(r=>!(r.groupIds||[]).some(id=>group(id)));
+  return gs.map(x=>groupBox(`${m.id}:${x.g.id}`, `📁 ${esc(x.g.name)}`, x.recs)).join('') +
+    (none.length ? groupBox(`${m.id}:none`, `<span class="muted">📂 기타 (그룹 없음)</span>`, none) : '') +
+    (!recs.length && !gs.length ? '<div class="muted small" style="padding:6px 2px">기록이 없어요.</div>' : '');
 }
 function viewRecords(v){
-  const list = filtered();
+  const q = ui.q.trim().toLowerCase();
+  let body = '';
+  if(q){
+    const list = db.records.filter(r=> ui.member==='all' || r.memberId===ui.member).filter(r=>searchHit(r,q)).sort(byDateDesc);
+    body = `<p class="muted">검색 결과 ${list.length}건</p>` + list.map(r=>recCard(r,true)).join('');
+  } else if(ui.member==='all'){
+    body = db.members.map(m=>`<div class="mem-h">${whoTag(m.id)}<button class="btn ghost sm" data-gm="${m.id}">그룹 관리</button></div>${memberSection(m)}`).join('');
+  } else {
+    body = `<div class="row between" style="margin:6px 0"><span class="muted small">그룹을 누르면 기록이 펼쳐져요</span>
+      <button class="btn ghost sm" data-gm="${ui.member}">그룹 관리</button></div>` + memberSection(member(ui.member));
+  }
   v.innerHTML = memberChips() +
-    `<input type="search" id="q" placeholder="병원·진단명·약 이름·성분 검색" value="${esc(ui.q)}">` +
-    (backupReminder()) +
-    (list.length ? list.map(recCard).join('') :
-      `<div class="empty">기록이 없어요.<br>오른쪽 아래 ＋ 버튼이나 <b>캡쳐등록</b> 탭으로 추가하세요.</div>`);
-  bindChips();
-  const q = document.getElementById('q');
-  q.oninput = ()=>{ ui.q = q.value; const pos=q.selectionStart; render(); const n=document.getElementById('q'); n.focus(); n.setSelectionRange(pos,pos); };
+    `<input type="search" id="q" placeholder="병원·진단명·약·효능·그룹 검색" value="${esc(ui.q)}">` +
+    backupReminder() + body;
+  bindChips(); bindSearch();
+  v.querySelectorAll('.grp-h').forEach(h=> h.onclick = ()=>{
+    const box = h.parentElement, k = box.dataset.key;
+    if(ui.open.has(k)) ui.open.delete(k); else ui.open.add(k);
+    box.classList.toggle('open');
+  });
   v.querySelectorAll('.rec').forEach(el=> el.onclick = ()=> openEditor(db.records.find(r=>r.id===el.dataset.id)));
+  v.querySelectorAll('[data-gm]').forEach(b=> b.onclick = ()=> openGroups(b.dataset.gm));
 }
 function backupReminder(){
   if(!db.records.length) return '';
@@ -274,39 +364,86 @@ function backupReminder(){
   return `<div class="notice">💾 ${last?`마지막 백업이 ${days}일 전이에요.`:'아직 백업한 적이 없어요.'} 폰 브라우저 데이터가 지워지면 기록도 사라지니 <b>가족·백업</b> 탭에서 백업해 두세요.</div>`;
 }
 
+/* ---------- 그룹 관리 ---------- */
+function openGroups(memberId){
+  const sheet = document.getElementById('sheet');
+  function draw(){
+    const gs = groupsOf(memberId);
+    sheet.innerHTML = `
+      <div class="sheet-head"><h2>${whoTag(memberId)} 그룹 관리</h2><button class="btn ghost sm" id="gClose">닫기</button></div>
+      <p class="muted small">그룹 이름을 바꾸거나 지울 수 있어요. 그룹을 지워도 진료기록은 그대로 남아요.</p>
+      ${gs.length ? gs.map(g=>{
+        const n = db.records.filter(r=>r.groupIds?.includes(g.id)).length;
+        return `<div class="card row between"><div><b>${esc(g.name)}</b> <span class="muted small">${n}건</span></div>
+          <div class="row"><button class="btn ghost sm" data-ren="${g.id}">이름 변경</button><button class="btn danger sm" data-del="${g.id}">삭제</button></div></div>`;
+      }).join('') : '<div class="empty" style="padding:20px">아직 그룹이 없어요.</div>'}
+      <div class="sheet-foot"><button class="btn full" id="gAdd">＋ 새 그룹 만들기</button></div>`;
+    sheet.querySelector('#gClose').onclick = ()=>{ closeModal(); render(); };
+    sheet.querySelector('#gAdd').onclick = ()=>{ if(newGroup(memberId)) draw(); };
+    sheet.querySelectorAll('[data-ren]').forEach(b=> b.onclick = ()=>{
+      const g = group(b.dataset.ren);
+      const name = (prompt('새 이름', g.name)||'').trim(); if(!name) return;
+      g.name = name; g.updatedAt = now(); save(); draw();
+    });
+    sheet.querySelectorAll('[data-del]').forEach(b=> b.onclick = ()=>{
+      const g = group(b.dataset.del);
+      if(!confirm(`'${g.name}' 그룹을 삭제할까요?\n진료기록은 지워지지 않아요.`)) return;
+      db.groups = db.groups.filter(x=>x.id!==g.id);
+      db.records.forEach(r=>{ if(r.groupIds?.includes(g.id)){ r.groupIds = r.groupIds.filter(x=>x!==g.id); r.updatedAt = now(); } });
+      db.deleted.push({id:g.id, at:now()}); save(); draw();
+    });
+  }
+  draw(); openModal();
+}
+function groupPicker(memberId, selected){
+  return `<div class="gpick">${groupsOf(memberId).map(g=>`<button type="button" data-g="${g.id}" class="${selected.includes(g.id)?'on':''}">${esc(g.name)}</button>`).join('')}
+    <button type="button" class="add" data-gnew="1">＋ 새 그룹</button></div>`;
+}
+
 /* ================= 기록 편집 ================= */
 function openEditor(rec){
   const isNew = !rec;
   const r = rec ? JSON.parse(JSON.stringify(rec)) : {
     id:uid(), memberId: ui.member!=='all' ? ui.member : (db.members[0]?.id||''), date:today(),
-    hospital:'', department:'', diagnosis:'', symptoms:'', totalCost:null, copay:null,
-    medications:[], insurance:{status:'unclaimed',claimDate:'',paidAmount:null}, memo:''
+    hospital:'', department:'', pharmacy:'', diagnosis:'', symptoms:'', hospitalPaid:null, pharmacyPaid:null,
+    groupIds:[], medications:[], insurance:{status:'unclaimed',claimDate:'',paidAmount:null}, memo:''
   };
   r.insurance = r.insurance || {status:'unclaimed'};
+  r.groupIds = r.groupIds || [];
   const sheet = document.getElementById('sheet');
   const medRow = (m={},i)=>`<div class="medbox" data-i="${i}">
       <div class="row between"><b class="small">약 ${i+1}</b><button class="btn ghost sm" data-delmed="${i}">삭제</button></div>
+      <label>약 이름</label><input data-f="name" value="${esc(m.name)}" placeholder="예: 리리카캡슐">
       <div class="grid2">
-        <div><label>약 이름</label><input data-f="name" value="${esc(m.name)}"></div>
-        <div><label>성분명</label><input data-f="ingredient" value="${esc(m.ingredient)}"></div>
-        <div><label>1회 용량</label><input data-f="dosage" value="${esc(m.dosage)}" placeholder="예: 1정"></div>
-        <div><label>복용 횟수</label><input data-f="frequency" value="${esc(m.frequency)}" placeholder="예: 1일 3회 식후"></div>
-        <div><label>복용 일수</label><input data-f="days" inputmode="numeric" value="${esc(m.days)}" placeholder="예: 3"></div>
-      </div></div>`;
+        <div><label>성분명</label><input data-f="ingredient" value="${esc(m.ingredient)}" placeholder="예: 프레가발린"></div>
+        <div><label>함량</label><input data-f="strength" value="${esc(m.strength)}" placeholder="예: 75mg"></div>
+      </div>
+      <label>효능 안내</label><input data-f="effect" value="${esc(m.effect)}" placeholder="예: 항경련제 · 신경통 완화">
+      <details style="margin-top:8px"><summary class="small muted">복용법 (선택)</summary>
+      <div class="grid2">
+        <div><label>1회 용량</label><input data-f="dosage" value="${esc(m.dosage)}" placeholder="예: 1캡슐"></div>
+        <div><label>복용 횟수</label><input data-f="frequency" value="${esc(m.frequency)}" placeholder="예: 1일 2회"></div>
+      </div>
+      <label>복용 일수</label><input data-f="days" inputmode="numeric" value="${esc(m.days)}" placeholder="예: 30"></details>
+    </div>`;
   function draw(){
     sheet.innerHTML = `
     <div class="sheet-head"><h2>${isNew?'새 진료기록':'진료기록 수정'}</h2><button class="btn ghost sm" id="eClose">닫기</button></div>
     <label>가족</label>
     <select id="eMember">${db.members.map(m=>`<option value="${m.id}" ${m.id===r.memberId?'selected':''}>${esc(m.name)}</option>`).join('')}</select>
+    <label>그룹 (여러 개 선택 가능)</label>
+    <div id="eGroups">${groupPicker(r.memberId, r.groupIds)}</div>
     <label>진료일</label><input type="date" id="eDate" value="${esc(r.date)}">
-    <label>진료과</label><input id="eDept" value="${esc(r.department)}" placeholder="예: 소아청소년과">
-    <label>병원·약국 이름</label><input id="eHosp" value="${esc(r.hospital)}">
-    <label>진단명</label><input id="eDiag" value="${esc(r.diagnosis)}" placeholder="예: 급성 기관지염">
+    <label>병원 이름</label><input id="eHosp" value="${esc(r.hospital)}">
+    <label>진료과</label><input id="eDept" value="${esc(r.department)}" placeholder="예: 신경과">
+    <label>진단명</label><input id="eDiag" value="${esc(r.diagnosis)}" placeholder="예: 하지불안증후군">
     <label>증상 메모</label><textarea id="eSym" style="min-height:60px">${esc(r.symptoms)}</textarea>
+    <div class="sec">결제 금액 <span class="muted small" style="font-weight:400">(실제로 카드 등으로 낸 돈)</span></div>
     <div class="grid2">
-      <div><label>총 진료비(원)</label><input id="eTotal" inputmode="numeric" value="${r.totalCost??''}"></div>
-      <div><label>본인부담금(원)</label><input id="eCopay" inputmode="numeric" value="${r.copay??''}"></div>
+      <div><label>병원비(원)</label><input id="eHPaid" inputmode="numeric" value="${r.hospitalPaid??''}"></div>
+      <div><label>약제비(원)</label><input id="ePPaid" inputmode="numeric" value="${r.pharmacyPaid??''}"></div>
     </div>
+    <label>약국 이름</label><input id="ePharm" value="${esc(r.pharmacy)}">
     <div class="sec">처방약</div>
     <div id="meds">${r.medications.map(medRow).join('')}</div>
     <button class="btn sub full" id="addMed">＋ 약 추가</button>
@@ -322,24 +459,32 @@ function openEditor(rec){
     bind();
   }
   function collect(){
+    const q = id => sheet.querySelector(id).value.trim();
     r.memberId = sheet.querySelector('#eMember').value;
-    r.date = sheet.querySelector('#eDate').value;
-    r.department = sheet.querySelector('#eDept').value.trim();
-    r.hospital = sheet.querySelector('#eHosp').value.trim();
-    r.diagnosis = sheet.querySelector('#eDiag').value.trim();
-    r.symptoms = sheet.querySelector('#eSym').value.trim();
-    r.totalCost = toNum(sheet.querySelector('#eTotal').value);
-    r.copay = toNum(sheet.querySelector('#eCopay').value);
-    r.insurance.claimDate = sheet.querySelector('#eClaim').value;
-    r.insurance.paidAmount = toNum(sheet.querySelector('#ePaid').value);
-    r.memo = sheet.querySelector('#eMemo').value.trim();
+    r.date = q('#eDate'); r.hospital = q('#eHosp'); r.department = q('#eDept');
+    r.diagnosis = q('#eDiag'); r.symptoms = q('#eSym');
+    r.hospitalPaid = toNum(q('#eHPaid')); r.pharmacyPaid = toNum(q('#ePPaid')); r.pharmacy = q('#ePharm');
+    r.insurance.claimDate = q('#eClaim'); r.insurance.paidAmount = toNum(q('#ePaid'));
+    r.memo = q('#eMemo');
     r.medications = [...sheet.querySelectorAll('.medbox')].map(box=>{
       const g = f => box.querySelector(`[data-f="${f}"]`).value.trim();
-      return {name:g('name'), ingredient:g('ingredient'), dosage:g('dosage'), frequency:g('frequency'), days:toNum(g('days'))};
+      return {name:g('name'), ingredient:g('ingredient'), strength:g('strength'), effect:g('effect'),
+              dosage:g('dosage'), frequency:g('frequency'), days:toNum(g('days'))};
     });
   }
   function bind(){
     sheet.querySelector('#eClose').onclick = closeModal;
+    sheet.querySelector('#eMember').onchange = ()=>{ collect(); r.groupIds = r.groupIds.filter(id=>group(id)?.memberId===r.memberId); draw(); };
+    sheet.querySelector('#eHosp').onchange = ()=>{
+      if(isNew && !r.groupIds.length){ collect(); const s = suggestGroups(r.memberId, r.hospital); if(s.length){ r.groupIds = s; draw(); toast('같은 병원의 지난 그룹을 골라뒀어요'); } }
+    };
+    sheet.querySelector('#eGroups').onclick = e=>{
+      const b = e.target.closest('button'); if(!b) return;
+      collect();
+      if(b.dataset.gnew){ const g = newGroup(r.memberId); if(g && !r.groupIds.includes(g.id)) r.groupIds.push(g.id); }
+      else { const id = b.dataset.g; r.groupIds = r.groupIds.includes(id) ? r.groupIds.filter(x=>x!==id) : [...r.groupIds, id]; }
+      draw();
+    };
     sheet.querySelector('#addMed').onclick = ()=>{ collect(); r.medications.push({}); draw(); };
     sheet.querySelectorAll('[data-delmed]').forEach(b=> b.onclick = ()=>{ collect(); r.medications.splice(+b.dataset.delmed,1); draw(); });
     sheet.querySelector('#eIns').onclick = e=>{
@@ -362,6 +507,8 @@ function openEditor(rec){
       r.updatedAt = now();
       const i = db.records.findIndex(x=>x.id===r.id);
       if(i>=0) db.records[i]=r; else db.records.push(r);
+      r.groupIds.forEach(id=>ui.open.add(`${r.memberId}:${id}`));
+      if(!r.groupIds.length) ui.open.add(`${r.memberId}:none`);
       save(); closeModal(); render(); toast('저장했어요');
     };
   }
@@ -369,37 +516,40 @@ function openEditor(rec){
 }
 function openModal(){ document.getElementById('modal').classList.add('open'); document.body.style.overflow='hidden'; }
 function closeModal(){ document.getElementById('modal').classList.remove('open'); document.body.style.overflow=''; }
-document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal') closeModal(); });
+document.getElementById('modal').addEventListener('click', e=>{ if(e.target.id==='modal'){ closeModal(); render(); } });
 
 /* ================= 약 ================= */
+function medDose(m){ return [m.dosage, m.frequency, m.days?`${m.days}일분`:''].filter(Boolean).join(' · '); }
 function viewMeds(v){
   const q = ui.q.trim().toLowerCase();
   const map = new Map();
   db.records.filter(r=> ui.member==='all'||r.memberId===ui.member).forEach(r=>{
     (r.medications||[]).forEach(m=>{
       if(!m.name && !m.ingredient) return;
-      const key = (m.name||m.ingredient).replace(/\s/g,'');
-      if(!map.has(key)) map.set(key,{name:m.name, ingredient:m.ingredient, uses:[]});
-      const e = map.get(key); if(!e.ingredient && m.ingredient) e.ingredient = m.ingredient;
+      const key = nk(m.name||m.ingredient) + '|' + nk(m.strength);
+      if(!map.has(key)) map.set(key,{name:m.name, ingredient:m.ingredient, strength:m.strength, effect:m.effect, uses:[]});
+      const e = map.get(key);
+      if(!e.ingredient && m.ingredient) e.ingredient = m.ingredient;
+      if(!e.effect && m.effect) e.effect = m.effect;
       e.uses.push({date:r.date, memberId:r.memberId, hospital:r.hospital, diagnosis:r.diagnosis, dose:medDose(m), rid:r.id});
     });
   });
   let list = [...map.values()].map(e=>{ e.uses.sort((a,b)=>(b.date||'').localeCompare(a.date||'')); return e; });
-  if(q) list = list.filter(e=>[e.name,e.ingredient].join(' ').toLowerCase().includes(q));
+  if(q) list = list.filter(e=>[e.name,e.ingredient,e.effect].join(' ').toLowerCase().includes(q));
   list.sort((a,b)=>(b.uses[0].date||'').localeCompare(a.uses[0].date||''));
   v.innerHTML = memberChips() +
-    `<input type="search" id="q" placeholder="약 이름·성분명 검색" value="${esc(ui.q)}">
+    `<input type="search" id="q" placeholder="약 이름·성분명·효능 검색" value="${esc(ui.q)}">
      <p class="muted">같은 약을 언제, 누가, 왜 먹었는지 모아서 보여줘요.</p>` +
-    (list.length ? list.map(e=>`<div class="card">
-      <h3>💊 ${esc(e.name||e.ingredient)}</h3>
-      ${e.ingredient&&e.name?`<div class="small muted">성분: ${esc(e.ingredient)}</div>`:''}
+    (list.length ? list.map(e=>{
+      const inner = [e.name?e.ingredient:'', e.strength].filter(Boolean).join(', ');
+      return `<div class="card">
+      <h3>💊 ${esc(e.name||e.ingredient)}${inner?` <span class="muted" style="font-weight:400">(${esc(inner)})</span>`:''}</h3>
+      ${e.effect?`<div class="small muted">${esc(e.effect)}</div>`:''}
       <details style="margin-top:6px"><summary class="small">처방 ${e.uses.length}회 · 최근 ${esc(e.uses[0].date)}</summary>
       ${e.uses.map(u=>`<div class="small" style="padding:4px 0;border-top:1px solid var(--line)" data-rid="${u.rid}">
         ${whoTag(u.memberId)} ${esc(u.date)} · ${esc(u.hospital)}${u.diagnosis?` · ${esc(u.diagnosis)}`:''}${u.dose?`<br><span class="muted">${esc(u.dose)}</span>`:''}</div>`).join('')}
-      </details></div>`).join('') : `<div class="empty">약 기록이 없어요.</div>`);
-  bindChips();
-  const qi = document.getElementById('q');
-  qi.oninput = ()=>{ ui.q = qi.value; const pos=qi.selectionStart; render(); const n=document.getElementById('q'); n.focus(); n.setSelectionRange(pos,pos); };
+      </details></div>`;}).join('') : `<div class="empty">약 기록이 없어요.</div>`);
+  bindChips(); bindSearch();
   v.querySelectorAll('[data-rid]').forEach(el=> el.onclick = ()=> openEditor(db.records.find(r=>r.id===el.dataset.rid)));
 }
 
@@ -409,19 +559,20 @@ function viewInsurance(v){
   const by = s => recs.filter(r=>(r.insurance?.status||'unclaimed')===s);
   const sum = (arr,f) => arr.reduce((a,r)=>a+(Number(f(r))||0),0);
   const un = by('unclaimed'), cl = by('claimed'), pd = by('paid');
-  const list = by(ui.insFilter).sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  const list = by(ui.insFilter).sort(byDateDesc);
   v.innerHTML = memberChips() + `
     <div class="row" style="margin:6px 0">
-      <div class="stat"><b style="color:var(--warn)">${un.length}건</b><span>미청구 ${won(sum(un,r=>r.copay))}</span></div>
+      <div class="stat"><b style="color:var(--warn)">${un.length}건</b><span>미청구 ${won(sum(un,paidOf))||'0원'}</span></div>
       <div class="stat"><b style="color:var(--info)">${cl.length}건</b><span>청구 후 대기</span></div>
       <div class="stat"><b style="color:var(--ok)">${won(sum(pd,r=>r.insurance.paidAmount))||'0원'}</b><span>지급 ${pd.length}건</span></div>
     </div>
     <div class="seg" id="insF" style="margin:10px 0">${Object.entries(INS).map(([k,o])=>`<button data-s="${k}" class="${ui.insFilter===k?'on':''}">${o.label} ${by(k).length}</button>`).join('')}</div>
     ${list.length ? list.map(r=>`<div class="card">
-      <div class="row between"><div class="row">${whoTag(r.memberId)}<span class="muted">${esc(r.date)}</span></div><b>${won(r.copay)||'금액 미입력'}</b></div>
-      <div style="margin:4px 0 8px">${esc(r.hospital)}${r.diagnosis?` <span class="muted">· ${esc(r.diagnosis)}</span>`:''}</div>
+      <div class="row between"><div class="row">${whoTag(r.memberId)}<span class="muted">${esc(r.date)}</span></div><b>${paidOf(r)?won(paidOf(r)):'금액 미입력'}</b></div>
+      <div style="margin:4px 0 2px">${esc(r.hospital)}${r.diagnosis?` <span class="muted">· ${esc(r.diagnosis)}</span>`:''}</div>
+      <div class="small muted">병원비 ${won(r.hospitalPaid)||'-'} · 약제비 ${won(r.pharmacyPaid)||'-'}</div>
       ${r.insurance?.claimDate?`<div class="small muted">청구일 ${esc(r.insurance.claimDate)}${r.insurance.paidAmount!=null?` · 지급 ${won(r.insurance.paidAmount)}`:''}</div>`:''}
-      <div class="row wrap" style="margin-top:6px">
+      <div class="row wrap" style="margin-top:8px">
         ${ui.insFilter==='unclaimed'?`<button class="btn sub" data-act="claimed" data-id="${r.id}">청구했어요</button><button class="btn ghost" data-act="none" data-id="${r.id}">청구 안 함</button>`:''}
         ${ui.insFilter==='claimed'?`<button class="btn sub" data-act="paid" data-id="${r.id}">지급 받았어요</button>`:''}
         <button class="btn ghost" data-act="edit" data-id="${r.id}">자세히</button>
@@ -444,14 +595,18 @@ function viewInsurance(v){
 }
 
 /* ================= 캡쳐 등록 (AI 연동) ================= */
-const AI_PROMPT = `첨부한 이미지(처방전, 약봉투, 약제비 영수증, 진료비 영수증, 진료비 세부내역서 등)를 읽고, 아래 JSON 형식으로만 답해줘. 설명이나 다른 말은 쓰지 말고 JSON만 출력해.
+const AI_PROMPT = `첨부한 이미지(처방전, 약봉투, 약국 영수증, 병원 진료비 영수증, 카드 결제 내역 등)를 읽고, 아래 JSON 형식으로만 답해줘. 설명이나 다른 말은 쓰지 말고 JSON만 출력해.
 
 규칙:
 - 날짜는 YYYY-MM-DD 형식
 - 금액은 쉼표와 '원' 없이 숫자만 (예: 12300)
+- hospitalPaid: 병원에서 내가 실제로 결제한 금액 (영수증의 '납부할 금액', '수납금액', 카드 결제액). 총진료비나 공단부담금이 아님
+- pharmacyPaid: 약국에서 내가 실제로 결제한 금액 (약국 영수증의 '본인부담금', '수납금액', 카드 결제액)
+- hospital에는 진료한(처방한) 병원명, pharmacy에는 약국명
+- medications의 strength는 약 1개에 든 성분 함량 (예: 75mg, 0.25mg). 1회 복용 개수가 아님
+- ingredient(성분명)가 이미지에 없으면 약 이름으로 알려진 주성분을 적고 끝에 "(추정)"을 붙여줘
+- effect는 약의 분류와 간단한 효능을 20자 이내로 (예: "항경련제 · 신경통 완화", "수면진정제", "위장약 · 위산 억제")
 - 이미지에 없는 값은 "" 또는 null
-- 약국 영수증·약봉투면 hospital에는 처방한 병원명을, 병원명이 없으면 약국명을 적어줘
-- 성분명이 이미지에 없으면 약 이름으로 알려진 주성분을 적고 끝에 "(추정)"을 붙여줘
 - 서로 다른 날짜나 병원의 기록이 여러 개면 records 배열에 나눠서 넣어줘
 
 {
@@ -460,12 +615,13 @@ const AI_PROMPT = `첨부한 이미지(처방전, 약봉투, 약제비 영수증
       "date": "",
       "hospital": "",
       "department": "",
+      "pharmacy": "",
       "diagnosis": "",
       "symptoms": "",
-      "totalCost": null,
-      "copay": null,
+      "hospitalPaid": null,
+      "pharmacyPaid": null,
       "medications": [
-        { "name": "", "ingredient": "", "dosage": "", "frequency": "", "days": null }
+        { "name": "", "ingredient": "", "strength": "", "effect": "", "dosage": "", "frequency": "", "days": null }
       ],
       "memo": ""
     }
@@ -487,7 +643,7 @@ function viewImport(v){
       <label>누구의 기록인가요?</label>
       <select id="aiWho">${db.members.map(m=>`<option value="${m.id}" ${ui.member===m.id?'selected':''}>${esc(m.name)}</option>`).join('')}</select>
       ${db.members.length?'':'<div class="notice">먼저 가족·백업 탭에서 가족을 등록해 주세요.</div>'}
-      <button class="btn full" style="margin-top:10px" id="parse" ${db.members.length?'':'disabled'}>인식하기</button>
+      <button class="btn full" style="margin-top:12px" id="parse" ${db.members.length?'':'disabled'}>인식하기</button>
     </div>
     <div id="preview"></div>`;
   document.getElementById('copyP').onclick = ()=> copyText(AI_PROMPT);
@@ -496,7 +652,11 @@ function viewImport(v){
     if(!recs){ alert('인식할 수 없는 형식이에요.\nAI 답변에 { 로 시작하는 JSON이 들어 있는지 확인해 주세요.'); return; }
     if(!recs.length){ alert('읽어낸 기록이 없어요.'); return; }
     const who = document.getElementById('aiWho').value;
-    pending = recs.map(r=>({...r, memberId:who}));
+    pending = recs.map(r=>{
+      const same = findSame({...r, memberId:who});
+      const groupIds = same ? [...(same.groupIds||[])] : suggestGroups(who, r.hospital);
+      return {...r, memberId:who, groupIds, _save:true};
+    });
     showPreview();
   };
 }
@@ -518,7 +678,7 @@ function parseAI(text){
   if(fence) s = fence[1];
   const start = s.search(/[\[{]/);
   if(start<0) return null;
-  const open = s[start], close = open==='{'?'}':']';
+  const close = s[start]==='{'?'}':']';
   const end = s.lastIndexOf(close);
   if(end<=start) return null;
   let obj;
@@ -527,57 +687,69 @@ function parseAI(text){
     try{ obj = JSON.parse(s.slice(start,end+1).replace(/,\s*([}\]])/g,'$1').replace(/[“”]/g,'"')); }
     catch(e2){ return null; }
   }
-  let arr = Array.isArray(obj) ? obj : (obj.records || obj.visits || [obj]);
+  const arr = Array.isArray(obj) ? obj : (obj.records || obj.visits || [obj]);
   if(!Array.isArray(arr)) return null;
+  const str = v => String(v??'').trim();
   return arr.filter(x=>x && typeof x==='object').map(x=>({
     date: normDate(x.date) || today(),
-    hospital: String(x.hospital||x.clinic||x.pharmacy||'').trim(),
-    department: String(x.department||'').trim(),
-    diagnosis: String(x.diagnosis||'').trim(),
-    symptoms: String(x.symptoms||'').trim(),
-    totalCost: toNum(x.totalCost),
-    copay: toNum(x.copay),
-    memo: String(x.memo||'').trim(),
+    hospital: str(x.hospital||x.clinic),
+    department: str(x.department),
+    pharmacy: str(x.pharmacy),
+    diagnosis: str(x.diagnosis),
+    symptoms: str(x.symptoms),
+    hospitalPaid: toNum(x.hospitalPaid ?? x.copay),
+    pharmacyPaid: toNum(x.pharmacyPaid),
+    memo: str(x.memo),
     medications: (Array.isArray(x.medications)?x.medications:[]).map(m=>({
-      name:String(m.name||'').trim(), ingredient:String(m.ingredient||'').trim(),
-      dosage:String(m.dosage||'').trim(), frequency:String(m.frequency||'').trim(), days:toNum(m.days)
+      name:str(m.name), ingredient:str(m.ingredient), strength:str(m.strength), effect:str(m.effect),
+      dosage:str(m.dosage), frequency:str(m.frequency), days:toNum(m.days)
     })).filter(m=>m.name||m.ingredient)
   }));
 }
 function findSame(r){
-  return db.records.find(x=> x.memberId===r.memberId && x.date===r.date &&
-    x.hospital && r.hospital && x.hospital.replace(/\s/g,'')===r.hospital.replace(/\s/g,''));
+  return db.records.find(x=> x.memberId===r.memberId && x.date===r.date && x.hospital && r.hospital && nk(x.hospital)===nk(r.hospital));
 }
 function showPreview(){
   const p = document.getElementById('preview');
   p.innerHTML = `<h2>③ 확인 후 저장</h2>
-    <p class="muted">내용이 맞는지 확인하세요. 저장한 뒤에도 진료기록 탭에서 고칠 수 있어요.</p>` +
+    <p class="muted">내용과 그룹을 확인하세요. 저장한 뒤에도 진료기록 탭에서 고칠 수 있어요.</p>` +
     pending.map((r,i)=>{
       const same = findSame(r);
-      return `<div class="card rec">
+      return `<div class="card rec" data-pi="${i}">
         <div class="row between"><div class="row">${whoTag(r.memberId)}<span class="muted">${esc(r.date)}</span></div>
-        <label class="row small" style="margin:0;color:var(--ink);gap:6px"><input type="checkbox" data-pi="${i}" checked> 저장</label></div>
-        <h3 style="margin-top:6px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted">· ${esc(r.department)}</span>`:''}</h3>
+        <label class="row small" style="margin:0;color:var(--ink);gap:6px"><input type="checkbox" data-chk="${i}" ${r._save?'checked':''}> 저장</label></div>
+        <h3 style="margin-top:6px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted" style="font-weight:400">· ${esc(r.department)}</span>`:''}</h3>
         ${r.diagnosis?`<div class="small">🩺 ${esc(r.diagnosis)}</div>`:''}
-        ${r.medications.length?`<ul class="meds">${r.medications.map(m=>`<li>💊 ${esc(m.name)}${m.ingredient?` <span class="ing">(${esc(m.ingredient)})</span>`:''}${medDose(m)?` <span class="ing">· ${esc(medDose(m))}</span>`:''}</li>`).join('')}</ul>`:''}
-        ${(r.copay!=null||r.totalCost!=null)?`<div class="small" style="margin-top:6px">본인부담 <b>${won(r.copay)||'-'}</b>${r.totalCost!=null?` / 총 ${won(r.totalCost)}`:''}</div>`:''}
-        ${same?`<div class="okbox">같은 날 같은 병원 기록이 이미 있어요. 저장하면 <b>빈 칸만 채우고 새 약을 추가</b>해서 하나로 합쳐요. (처방전과 영수증을 따로 캡쳐한 경우)</div>`:''}
+        ${r.medications.length?`<ul class="meds">${r.medications.map(medLine).join('')}</ul>`:''}
+        <div class="pay"><div><span>병원비</span> <b>${won(r.hospitalPaid)||'-'}</b></div>
+          <div><span>약제비</span> <b>${won(r.pharmacyPaid)||'-'}</b>${r.pharmacy?` <span>(${esc(r.pharmacy)})</span>`:''}</div></div>
+        <label>그룹</label>${groupPicker(r.memberId, r.groupIds)}
+        ${same?`<div class="okbox">같은 날 같은 병원 기록이 이미 있어요. 저장하면 <b>빈 칸만 채우고 새 약을 추가</b>해서 하나로 합쳐요.</div>`:''}
       </div>`;
     }).join('') +
     `<button class="btn full" id="savePend">저장하기</button>`;
+  p.querySelectorAll('[data-chk]').forEach(c=> c.onchange = ()=>{ pending[+c.dataset.chk]._save = c.checked; });
+  p.querySelectorAll('.gpick').forEach(gp=> gp.onclick = e=>{
+    const b = e.target.closest('button'); if(!b) return;
+    const r = pending[+gp.closest('[data-pi]').dataset.pi];
+    if(b.dataset.gnew){ const g = newGroup(r.memberId); if(g && !r.groupIds.includes(g.id)) r.groupIds.push(g.id); }
+    else { const id=b.dataset.g; r.groupIds = r.groupIds.includes(id) ? r.groupIds.filter(x=>x!==id) : [...r.groupIds,id]; }
+    const y = window.scrollY; showPreview(); window.scrollTo(0,y);
+  });
   document.getElementById('savePend').onclick = ()=>{
-    const pick = [...p.querySelectorAll('[data-pi]')].filter(c=>c.checked).map(c=>pending[+c.dataset.pi]);
     let added=0, merged=0;
-    pick.forEach(r=>{
+    pending.filter(r=>r._save).forEach(src=>{
+      const {_save, ...r} = src;
       const same = findSame(r);
       if(same){
-        ['department','diagnosis','symptoms','totalCost','copay','memo'].forEach(k=>{
+        ['department','pharmacy','diagnosis','symptoms','hospitalPaid','pharmacyPaid','memo'].forEach(k=>{
           if((same[k]===''||same[k]==null) && r[k]!==''&&r[k]!=null) same[k]=r[k];
         });
+        same.groupIds = [...new Set([...(same.groupIds||[]), ...r.groupIds])];
         same.medications = same.medications||[];
         r.medications.forEach(m=>{
-          const k = (m.name||m.ingredient).replace(/\s/g,'');
-          const ex = same.medications.find(o=>(o.name||o.ingredient).replace(/\s/g,'')===k);
+          const k = nk(m.name||m.ingredient);
+          const ex = same.medications.find(o=>nk(o.name||o.ingredient)===k);
           if(!ex) same.medications.push(m);
           else Object.keys(m).forEach(f=>{ if((ex[f]===''||ex[f]==null) && m[f]) ex[f]=m[f]; });
         });
@@ -586,6 +758,8 @@ function showPreview(){
         db.records.push({...r, id:uid(), insurance:{status:'unclaimed',claimDate:'',paidAmount:null}, updatedAt:now()});
         added++;
       }
+      r.groupIds.forEach(id=>ui.open.add(`${r.memberId}:${id}`));
+      if(!r.groupIds.length) ui.open.add(`${r.memberId}:none`);
     });
     save(); pending=null;
     toast([added?`새 기록 ${added}건`:'', merged?`기존 기록 ${merged}건에 합침`:''].filter(Boolean).join(', ') + ' · 저장했어요');
@@ -602,7 +776,7 @@ function viewSettings(v){
     ${db.members.map(m=>`<div class="card row between">
       <div><span class="who" style="background:${m.color}">${esc(m.name)}</span> <span class="muted">${esc(m.relation||'')}</span>
       ${m.note?`<div class="small muted" style="margin-top:4px">${esc(m.note)}</div>`:''}</div>
-      <button class="btn ghost" data-mid="${m.id}">수정</button></div>`).join('')}
+      <button class="btn ghost sm" data-mid="${m.id}">수정</button></div>`).join('')}
     <button class="btn sub full" id="addM">＋ 가족 추가</button>
 
     <h2>백업 · 가족과 공유</h2>
@@ -662,6 +836,8 @@ function openMember(m){
     if(n){ alert(`이 가족의 기록이 ${n}건 있어서 삭제할 수 없어요. 기록을 먼저 지워 주세요.`); return; }
     if(!confirm('삭제할까요?')) return;
     db.members = db.members.filter(o=>o.id!==x.id); db.deleted.push({id:x.id,at:now()});
+    db.groups.filter(g=>g.memberId===x.id).forEach(g=>db.deleted.push({id:g.id,at:now()}));
+    db.groups = db.groups.filter(g=>g.memberId!==x.id);
     if(ui.member===x.id) ui.member='all';
     save(); closeModal(); render();
   };
@@ -680,8 +856,7 @@ function openMember(m){
 
 /* ---------- 백업 ---------- */
 function backupBlob(){
-  const data = {...db, exportedAt: now()};
-  return new Blob([JSON.stringify(data,null,1)], {type:'application/json'});
+  return new Blob([JSON.stringify({...db, exportedAt: now()},null,1)], {type:'application/json'});
 }
 function backupName(){
   const d = new Date(); const p = n=>String(n).padStart(2,'0');
@@ -710,44 +885,57 @@ document.getElementById('fileIn').addEventListener('change', e=>{
     let inc;
     try{ inc = JSON.parse(rd.result); }catch(err){ alert('백업 파일을 읽을 수 없어요.'); return; }
     if(!inc || inc.app!=='medinfo' || !Array.isArray(inc.records)){ alert('진료수첩 백업 파일이 아니에요.'); return; }
-    const res = mergeBackup(inc);
+    const res = mergeBackup(migrate(inc));
     save(); ui.member='all'; render();
-    alert(`가져오기 완료\n· 가족 ${res.mAdd}명 추가\n· 기록 ${res.rAdd}건 추가, ${res.rUpd}건 갱신${res.rDel?`, ${res.rDel}건 삭제 반영`:''}`);
+    alert(`가져오기 완료\n· 가족 ${res.mAdd}명 추가\n· 그룹 ${res.gAdd}개 추가\n· 기록 ${res.rAdd}건 추가, ${res.rUpd}건 갱신${res.rDel?`, ${res.rDel}건 삭제 반영`:''}`);
   };
   rd.readAsText(file);
 });
 function mergeBackup(inc){
-  const res = {mAdd:0,rAdd:0,rUpd:0,rDel:0};
+  const res = {mAdd:0,gAdd:0,rAdd:0,rUpd:0,rDel:0};
   const delMap = new Map(db.deleted.map(d=>[d.id,d.at]));
   (inc.deleted||[]).forEach(d=>{ if(!delMap.has(d.id) || delMap.get(d.id)<d.at) delMap.set(d.id,d.at); });
-  // 가족: id가 다르더라도 이름이 같으면 같은 사람으로 봄
+  // 가족: id가 달라도 이름이 같으면 같은 사람으로 봄
   const idMap = {};
   (inc.members||[]).forEach(m=>{
     if(delMap.has(m.id)) return;
-    let mine = db.members.find(o=>o.id===m.id) || db.members.find(o=>o.name.replace(/\s/g,'')===String(m.name).replace(/\s/g,''));
+    const mine = db.members.find(o=>o.id===m.id) || db.members.find(o=>nk(o.name)===nk(m.name));
     if(mine){
       idMap[m.id]=mine.id;
       if(mine.id===m.id && (m.updatedAt||'')>(mine.updatedAt||'')) Object.assign(mine, m);
     } else { db.members.push({...m}); idMap[m.id]=m.id; res.mAdd++; }
   });
+  // 그룹: 같은 사람의 같은 이름 그룹은 하나로
+  const gMap = {};
+  (inc.groups||[]).forEach(g=>{
+    if(delMap.has(g.id)) return;
+    const mid = idMap[g.memberId] || g.memberId;
+    const mine = db.groups.find(o=>o.id===g.id) || db.groups.find(o=>o.memberId===mid && nk(o.name)===nk(g.name));
+    if(mine){
+      gMap[g.id]=mine.id;
+      if(mine.id===g.id && (g.updatedAt||'')>(mine.updatedAt||'')) mine.name = g.name;
+    } else { db.groups.push({...g, memberId:mid}); gMap[g.id]=g.id; res.gAdd++; }
+  });
   (inc.records||[]).forEach(r=>{
     if(delMap.has(r.id)) return;
-    const rr = {...r, memberId: idMap[r.memberId] || r.memberId};
+    const rr = {...r, memberId: idMap[r.memberId] || r.memberId, groupIds:[...new Set((r.groupIds||[]).map(id=>gMap[id]||id))]};
     const i = db.records.findIndex(o=>o.id===rr.id);
     if(i<0){ db.records.push(rr); res.rAdd++; }
     else if((rr.updatedAt||'')>(db.records[i].updatedAt||'')){ db.records[i]=rr; res.rUpd++; }
   });
   const before = db.records.length;
-  db.records = db.records.filter(r=>{
-    const d = delMap.get(r.id); return !(d && d >= (r.updatedAt||''));
-  });
-  db.members = db.members.filter(m=>!delMap.has(m.id) || db.records.some(r=>r.memberId===m.id));
+  db.records = db.records.filter(r=>{ const d = delMap.get(r.id); return !(d && d >= (r.updatedAt||'')); });
   res.rDel = before - db.records.length;
+  db.groups = db.groups.filter(g=>!delMap.has(g.id));
+  const gids = new Set(db.groups.map(g=>g.id));
+  db.records.forEach(r=>{ r.groupIds = (r.groupIds||[]).filter(id=>gids.has(id)); });
+  db.members = db.members.filter(m=>!delMap.has(m.id) || db.records.some(r=>r.memberId===m.id));
   db.deleted = [...delMap].map(([id,at])=>({id,at}));
   return res;
 }
 
 render();
+
 </script>
 </body>
 </html>
