@@ -51,10 +51,30 @@ h3{font-size:15px;margin:0}
 .btn.danger{background:var(--warn-soft);color:var(--warn)}
 .btn.full{width:100%}
 .btn:disabled{opacity:.5}
-input,select,textarea{width:100%;font:inherit;font-size:16px;border:1px solid var(--line);border-radius:10px;padding:9px 10px;background:#fff;color:var(--ink)}
-textarea{min-height:90px;resize:vertical}
-label{display:block;font-size:13px;color:var(--sub);margin:10px 0 4px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 10px}
+input,select,textarea{display:block;width:100%;min-width:0;max-width:100%;margin:0;font:inherit;font-size:16px;
+  border:1px solid var(--line);border-radius:10px;padding:0 12px;background:#fff;color:var(--ink)}
+input,select{height:46px;line-height:46px}
+input[type=checkbox]{display:inline-block;width:20px;height:20px;padding:0;margin:0;accent-color:var(--main)}
+select{-webkit-appearance:none;appearance:none;padding-right:34px;
+  background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b746f' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 12px center}
+input[type=date]{-webkit-appearance:none;appearance:none;text-align:left;position:relative;-webkit-min-logical-width:0;min-width:0}
+input[type=date]::-webkit-date-and-time-value{text-align:left;margin:0}
+input[type=date]::-webkit-calendar-picker-indicator{margin:0;opacity:.6}
+input[type=search]{-webkit-appearance:none;appearance:none}
+textarea{padding:10px 12px;line-height:1.5;min-height:90px;resize:vertical}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--main-soft);border-color:var(--main)}
+label{display:block;font-size:13px;color:var(--sub);margin:12px 0 5px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:0 10px}
+.grid2>*{min-width:0}
+@media (max-width:340px){.grid2{grid-template-columns:minmax(0,1fr)}}
+.sheet-head{position:sticky;top:-16px;z-index:2;background:var(--bg);margin:-16px -16px 0;padding:16px 16px 10px;
+  display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--line)}
+.sheet-head h2{margin:0}
+.sheet-foot{position:sticky;bottom:calc(-20px - env(safe-area-inset-bottom));z-index:2;background:var(--bg);
+  margin:16px -16px calc(-20px - env(safe-area-inset-bottom));padding:12px 16px calc(14px + env(safe-area-inset-bottom));
+  border-top:1px solid var(--line);display:flex;gap:8px}
+.btn.sm{padding:5px 12px;font-size:13px;border-radius:8px}
+.sec{font-size:15px;font-weight:700;margin:22px 0 4px;padding-top:14px;border-top:1px solid var(--line)}
 .fab{position:fixed;right:18px;bottom:calc(76px + env(safe-area-inset-bottom));z-index:9;width:56px;height:56px;border-radius:50%;
   border:0;background:var(--main);color:#fff;font-size:28px;box-shadow:0 4px 14px rgba(0,0,0,.18)}
 .rec h3{font-size:16px}
@@ -265,7 +285,7 @@ function openEditor(rec){
   r.insurance = r.insurance || {status:'unclaimed'};
   const sheet = document.getElementById('sheet');
   const medRow = (m={},i)=>`<div class="medbox" data-i="${i}">
-      <div class="row between"><b class="small">약 ${i+1}</b><button class="btn ghost small" data-delmed="${i}" style="padding:4px 10px">삭제</button></div>
+      <div class="row between"><b class="small">약 ${i+1}</b><button class="btn ghost sm" data-delmed="${i}">삭제</button></div>
       <div class="grid2">
         <div><label>약 이름</label><input data-f="name" value="${esc(m.name)}"></div>
         <div><label>성분명</label><input data-f="ingredient" value="${esc(m.ingredient)}"></div>
@@ -275,13 +295,11 @@ function openEditor(rec){
       </div></div>`;
   function draw(){
     sheet.innerHTML = `
-    <div class="row between"><h2 style="margin:0">${isNew?'새 진료기록':'진료기록 수정'}</h2><button class="btn ghost" id="eClose">닫기</button></div>
+    <div class="sheet-head"><h2>${isNew?'새 진료기록':'진료기록 수정'}</h2><button class="btn ghost sm" id="eClose">닫기</button></div>
     <label>가족</label>
     <select id="eMember">${db.members.map(m=>`<option value="${m.id}" ${m.id===r.memberId?'selected':''}>${esc(m.name)}</option>`).join('')}</select>
-    <div class="grid2">
-      <div><label>진료일</label><input type="date" id="eDate" value="${esc(r.date)}"></div>
-      <div><label>진료과</label><input id="eDept" value="${esc(r.department)}" placeholder="예: 소아청소년과"></div>
-    </div>
+    <label>진료일</label><input type="date" id="eDate" value="${esc(r.date)}">
+    <label>진료과</label><input id="eDept" value="${esc(r.department)}" placeholder="예: 소아청소년과">
     <label>병원·약국 이름</label><input id="eHosp" value="${esc(r.hospital)}">
     <label>진단명</label><input id="eDiag" value="${esc(r.diagnosis)}" placeholder="예: 급성 기관지염">
     <label>증상 메모</label><textarea id="eSym" style="min-height:60px">${esc(r.symptoms)}</textarea>
@@ -289,17 +307,15 @@ function openEditor(rec){
       <div><label>총 진료비(원)</label><input id="eTotal" inputmode="numeric" value="${r.totalCost??''}"></div>
       <div><label>본인부담금(원)</label><input id="eCopay" inputmode="numeric" value="${r.copay??''}"></div>
     </div>
-    <h2>처방약</h2>
+    <div class="sec">처방약</div>
     <div id="meds">${r.medications.map(medRow).join('')}</div>
     <button class="btn sub full" id="addMed">＋ 약 추가</button>
-    <h2>보험 청구</h2>
-    <div class="seg" id="eIns">${Object.entries(INS).map(([k,o])=>`<button data-s="${k}" class="${r.insurance.status===k?'on':''}">${o.label}</button>`).join('')}</div>
-    <div class="grid2">
-      <div><label>청구일</label><input type="date" id="eClaim" value="${esc(r.insurance.claimDate)}"></div>
-      <div><label>지급액(원)</label><input id="ePaid" inputmode="numeric" value="${r.insurance.paidAmount??''}"></div>
-    </div>
+    <div class="sec">보험 청구</div>
+    <div class="seg" id="eIns" style="margin-top:8px">${Object.entries(INS).map(([k,o])=>`<button data-s="${k}" class="${r.insurance.status===k?'on':''}">${o.label}</button>`).join('')}</div>
+    <label>청구일</label><input type="date" id="eClaim" value="${esc(r.insurance.claimDate)}">
+    <label>지급액(원)</label><input id="ePaid" inputmode="numeric" value="${r.insurance.paidAmount??''}">
     <label>메모</label><textarea id="eMemo" style="min-height:60px">${esc(r.memo)}</textarea>
-    <div class="row" style="margin-top:16px">
+    <div class="sheet-foot">
       ${isNew?'':'<button class="btn danger" id="eDel">삭제</button>'}
       <button class="btn" style="flex:1" id="eSave">저장</button>
     </div>`;
@@ -540,7 +556,7 @@ function showPreview(){
       const same = findSame(r);
       return `<div class="card rec">
         <div class="row between"><div class="row">${whoTag(r.memberId)}<span class="muted">${esc(r.date)}</span></div>
-        <label class="row small" style="margin:0;color:var(--ink)"><input type="checkbox" data-pi="${i}" checked style="width:auto"> 저장</label></div>
+        <label class="row small" style="margin:0;color:var(--ink);gap:6px"><input type="checkbox" data-pi="${i}" checked> 저장</label></div>
         <h3 style="margin-top:6px">${esc(r.hospital||'(병원명 없음)')}${r.department?` <span class="muted">· ${esc(r.department)}</span>`:''}</h3>
         ${r.diagnosis?`<div class="small">🩺 ${esc(r.diagnosis)}</div>`:''}
         ${r.medications.length?`<ul class="meds">${r.medications.map(m=>`<li>💊 ${esc(m.name)}${m.ingredient?` <span class="ing">(${esc(m.ingredient)})</span>`:''}${medDose(m)?` <span class="ing">· ${esc(medDose(m))}</span>`:''}</li>`).join('')}</ul>`:''}
@@ -627,13 +643,13 @@ function openMember(m){
   const x = m ? {...m} : {id:uid(), name:'', relation:'', note:'', color:COLORS[db.members.length%COLORS.length]};
   const sheet = document.getElementById('sheet');
   sheet.innerHTML = `
-    <div class="row between"><h2 style="margin:0">${isNew?'가족 추가':'가족 수정'}</h2><button class="btn ghost" id="mClose">닫기</button></div>
+    <div class="sheet-head"><h2>${isNew?'가족 추가':'가족 수정'}</h2><button class="btn ghost sm" id="mClose">닫기</button></div>
     <label>이름</label><input id="mName" value="${esc(x.name)}" placeholder="예: 홍길동">
     <label>관계</label><input id="mRel" value="${esc(x.relation)}" placeholder="예: 본인, 아내, 첫째">
     <label>메모 (혈액형, 알레르기 등 자유롭게)</label><textarea id="mNote" style="min-height:60px">${esc(x.note)}</textarea>
     <label>색상</label>
     <div class="row wrap" id="mCol">${COLORS.map(c=>`<button data-c="${c}" style="width:34px;height:34px;border-radius:50%;border:3px solid ${c===x.color?'#1f2a27':'transparent'};background:${c}"></button>`).join('')}</div>
-    <div class="row" style="margin-top:16px">
+    <div class="sheet-foot">
       ${isNew?'':'<button class="btn danger" id="mDel">삭제</button>'}
       <button class="btn" style="flex:1" id="mSave">저장</button>
     </div>`;
